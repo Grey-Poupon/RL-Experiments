@@ -3,10 +3,10 @@ import gym
 import numpy as np
 from collections import deque
 import tflearn
+import tensorflow as tf
 from skimage.transform import rescale, resize, downscale_local_mean
 from skimage.color import rgb2gray
 import matplotlib.pyplot as plt
-
 
 ENV_NAME = "BreakoutDeterministic-v0"
 
@@ -19,7 +19,8 @@ BATCH_SIZE = 20
 EXPLORATION_MAX = 1.0
 EXPLORATION_MIN = 0.01
 EXPLORATION_DECAY = 0.995
-
+IMG_WIDTH = 72
+IMG_HEIGHT = 92
 
 class DQNSolver:
 
@@ -28,16 +29,18 @@ class DQNSolver:
 
         self.action_space = action_space
         self.memory = deque(maxlen=MEMORY_SIZE)
+        tf.reset_default_graph()
 
-        network = tflearn.input_data(shape=[None, 4], name='input')
+        network = tflearn.input_data(shape=[None, IMG_HEIGHT, IMG_WIDTH, 1], name='input')
 
-        network = tflearn.conv_2d(network, 16, [4, 4], stride=[4, 4], activation='relu', regularizer="L2")
-        network = tflearn.conv_2d(network, 16, [4, 4], stride=[4, 4], activation='relu', regularizer="L2")
+        network = tflearn.conv_2d(network, 16, [8, 8], strides=[4, 4], activation='relu', regularizer="L2")
+        network = tflearn.conv_2d(network, 32, [5, 4], strides=[2, 2], activation='relu', regularizer="L2")
 
-        network = tflearn.fully_connected(network, 24, activation='relu')
-        network = tflearn.dropout(network, 0.8)
+        network = tflearn.flatten(network)
+        network = tflearn.fully_connected(network, 256, activation='relu')
+        network = tflearn.fully_connected(network, action_space, activation='linear')
 
-        network = tflearn.fully_connected(network, 2, activation='linear')
+
         network = tflearn.regression(network, optimizer='adam', learning_rate=LEARNING_RATE, loss='categorical_crossentropy',
                              name='targets')
 
@@ -61,12 +64,28 @@ class DQNSolver:
         for state, action, reward, state_next, terminal in batch:
             q_update = reward
             if not terminal:
-                q_update = (reward + GAMMA * np.amax(self.model.predict(state_next)[0]))
+                predictions = self.model.predict(state_next)
+                q_update = (reward + GAMMA * np.amax(predictions))
             q_values = self.model.predict(state)
             q_values[0][action] = q_update
             self.model.fit(state, q_values)
         self.exploration_rate *= EXPLORATION_DECAY
         self.exploration_rate = max(EXPLORATION_MIN, self.exploration_rate)
+
+
+def preprocess(state):
+    # Turn to grey
+    state = rgb2gray(state)
+
+    # Crop 26px from top & 16px from bottom
+    state = state[26:-16]
+
+    # Downscale 184, 144 
+    state = resize(state, [IMG_HEIGHT, IMG_WIDTH], anti_aliasing=False)
+
+    # Reshape
+    state = np.array(state).reshape([-1, IMG_HEIGHT, IMG_WIDTH, 1])
+    return state
 
 
 def main_loop():
@@ -75,45 +94,40 @@ def main_loop():
     action_space = env.action_space.n
     dqn_solver = DQNSolver(observation_space, action_space)
     run = 0
-    output = ""
-    while run < 1:
+    allOutput = ""
+    while run < 1000:
+
         run += 1
         state = env.reset()
+        state = preprocess(state)
 
         step = 0
         while True:
             step += 1
             # env.render()
-           # plt.imshow(state)
-           # plt.show()
+            # plt.imshow(state, cmap="gray")
+            # plt.show()
 
-            # Turn to grey
-            state = rgb2gray(state)
+            action = dqn_solver.act(state)
 
-            # Crop 25px from top & 15px from bottom
-            state = state[25:-15]
-            plt.imshow(state, cmap="gray")
-            plt.show()
-            # Downscale 210, 160
-                       #185, 145
-
-            state = resize(state, [110, 84], anti_aliasing=False)
-
-            plt.imshow(state, cmap="gray")
-            plt.show()
-
-            action = env.action_space.sample()
             state_next, reward, terminal, info = env.step(action)
-            #reward = reward if not terminal else -reward
-            #state_next = np.reshape(state_next, [1, observation_space])
-            #dqn_solver.remember(state, action, reward, state_next, terminal)
+            state_next = preprocess(state_next)
+
+            reward = reward if not terminal else -reward
+
+            dqn_solver.remember(state, action, reward, state_next, terminal)
             state = state_next
+            
             if terminal:
-                output += "Run: " + str(run) + ", exploration: " + str(dqn_solver.exploration_rate) + ", score: " + str(step)
+                output = "Run: " + str(run) + ", exploration: " + str(dqn_solver.exploration_rate) + ", score: " + str(step)
+                allOutput += output+"\n"
+                print(output)
                 break
-            dqn_solver.experience_replay()
-    return output
+        dqn_solver.experience_replay()
+    return allOutput
 
 
 if __name__ == "__main__":
-    main_loop()
+    out = main_loop()
+    
+print(out)
