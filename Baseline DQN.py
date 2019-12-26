@@ -62,9 +62,9 @@ class DQN(object):
         self.frame_width = frame_width
         self.agent_history_length = agent_history_length
 
-        self.input = tf.keras.Input(shape=[self.frame_height, self.frame_width, self.agent_history_length], dtype=tf.dtypes.float32)
+        self.input = tf.keras.Input(shape=[self.frame_height, self.frame_width, self.agent_history_length], dtype=tf.float32)
         # Normalizing the input
-        self.inputscaled = tf.math.divide(self.input, tf.dtypes.cast(255, tf.dtypes.float32))
+        self.inputscaled = tf.math.divide(self.input, 255)
 
         # Convolutional layers
         self.conv1 = tf.keras.layers.Conv2D(
@@ -174,7 +174,7 @@ class ExplorationExploitationScheduler(object):
             return np.random.randint(0, self.n_actions)
 
         state = tf.cast(tf.expand_dims(state, 0), tf.dtypes.float32)
-        values = self.DQN.model(state)
+        values = self.DQN.model.predict(state)
         argmax = np.argmax(values, axis=-1)
         return argmax
 
@@ -302,30 +302,30 @@ def learn(replay_memory, main_dqn, target_dqn, batch_size, gamma):
     # state s', new_states is passed!)
     # for every transition in the minibatch
 
-    values = main_dqn.model(tf.cast(new_states, tf.dtypes.float32))
-    arg_q_max = tf.squeeze(tf.image.rot90(tf.expand_dims([tf.range(len(values)-1,-1,-1, dtype=tf.int64), tf.argmax(values, axis=-1)] ,-1)))
+    values = main_dqn.model.predict(tf.cast(new_states, tf.dtypes.float32))
+    print(values)
+    arg_q_max = tf.argmax(values, 1)
     # The target network estimates the Q-values (in the next state s', new_states is passed!)
     # for every transition in the minibatch
-    q_vals = target_dqn.model(tf.cast(new_states, tf.dtypes.float32))
+    q_vals = target_dqn.model.predict(tf.cast(new_states, tf.dtypes.float32))
 
-    double_q = tf.gather_nd(q_vals, arg_q_max)
+    double_q = q_vals[range(batch_size), arg_q_max]
 
     # Bellman equation. Multiplication with (1-terminal_flags) makes sure that
     # if the game is over, targetQ=rewards
     target_q = rewards + (gamma * double_q * (1 - terminal_flags))
-    x = tf.one_hot(actions, main_dqn.n_actions, dtype=tf.float32)
-    # Have to stack here so that x.shape == y.shape for multiplcation
-    y = tf.stack([target_q, target_q, target_q, target_q], axis=1)
-    wanted_Qs = tf.multiply(y, x)
+
+    wanted_Qs = tf.reduce_sum(tf.multiply(q_vals, tf.one_hot(actions, main_dqn.n_actions, dtype=tf.float32)), axis=1)
+
     # Gradient descend step to update the parameters of the main network
-    loss =  main_dqn.model.fit(states, wanted_Qs, verbose=0).history['loss']
+    loss = main_dqn.model.train_on_batch(states, wanted_Qs)
 
     # Calc TD_Error, update items
-    expected_q = target_dqn.model(tf.cast(states, tf.dtypes.float32))
-    expected_q = tf.gather_nd(expected_q, arg_q_max)
+    expected_q = target_dqn.model.predict(tf.cast(states, tf.dtypes.float32))
+    expected_q = expected_q[range(batch_size), arg_q_max]
     TD_Error = target_q - expected_q
 
-    return loss, np.array(TD_Error)
+    return loss, TD_Error
 
 
 class TargetNetworkUpdater(object):
@@ -377,7 +377,7 @@ class Atari(object):
         if evaluation:
             for _ in range(random.randint(1, self.no_op_steps)):
                 frame, _, _, _ = self.env.step(1)  # Action 'Fire'
-        processed_frame = self.process_frame(frame)  # (★★★)
+        processed_frame = self.process_frame(frame)
         self.state = np.repeat(processed_frame, self.agent_history_length, axis=2)
 
         return terminal_life_lost
@@ -388,7 +388,7 @@ class Atari(object):
             action: Integer, action the agent performs
         Performs an action and observes the reward and terminal state from the environment
         """
-        new_frame, reward, terminal, info = self.env.step(action)  # (5★)
+        new_frame, reward, terminal, info = self.env.step(action)
 
         if info['ale.lives'] < self.last_lives:
             terminal_life_lost = True
@@ -396,8 +396,8 @@ class Atari(object):
             terminal_life_lost = terminal
         self.last_lives = info['ale.lives']
 
-        processed_new_frame = self.process_frame(new_frame)  # (6★)
-        new_state = np.append(self.state[:, :, 1:], processed_new_frame, axis=2)  # (6★)
+        processed_new_frame = self.process_frame(new_frame)
+        new_state = np.append(self.state[:, :, 1:], processed_new_frame, axis=2)
         self.state = new_state
 
         return processed_new_frame, reward, terminal, terminal_life_lost, new_frame
@@ -440,7 +440,7 @@ LEARNING_RATE = 0.00001          # Set to 0.00025 in Pong for quicker results.
                                  # Hessel et al. 2017 used 0.0000625
 BS = 32                          # Batch size
 
-PATH = "/content/gdrive/My Drive/Models/Breakoutchecks/"                 # Gifs and checkpoints will be saved here
+PATH = ""                 # Gifs and checkpoints will be saved here
 RUNID = 'run_1'
 
 atari = Atari(ENV_NAME, NO_OP_STEPS)
@@ -505,21 +505,22 @@ def train():
                 if frame_number % UPDATE_FREQ == 0 and frame_number > REPLAY_MEMORY_START_SIZE:
                     loss, TD_error = learn(replay_memory, MAIN_DQN, TARGET_DQN,
                                  BS, gamma=DISCOUNT_FACTOR)
-                    log_list.append([loss,TD_error])
+                    log_list.append([loss, TD_error])
                 if frame_number % NETW_UPDATE_FREQ == 0 and frame_number > REPLAY_MEMORY_START_SIZE:
-                    update_networks()  # (9★)
+                    update_networks()
 
                 if terminal:
-                    #print("Run: " + str(run) + "  Reward: " + str(episode_reward_sum) + "  Explore Rate: " + str( explore_exploit_sched.get_epsilon(frame_number)) + "  Frame Count: " + str(frame_number))
+                    print("Run: " + str(run) + "  Reward: " + str(episode_reward_sum) + "  Explore Rate: " + str( explore_exploit_sched.get_epsilon(frame_number)) + "  Frame Count: " + str(frame_number))
                     terminal = False
                     break
 
             rewards.append(episode_reward_sum)
 
         # Save the network parameters + Memory
-        MAIN_DQN.model.save_weights(PATH + str(frame_number))
-        np.savez(PATH + "ReplayMemory", replay_memory.actions, replay_memory.rewards, replay_memory.frames, replay_memory.terminal_flags)
-        np.save(PATH + "Logs "+ str(frame_number), log_list)
+        MAIN_DQN.model.save_weights(str(frame_number))
+        np.savez("ReplayMemory", replay_memory.actions, replay_memory.rewards, replay_memory.frames, replay_memory.terminal_flags)
+        np.save("Logs_"+ str(frame_number), log_list)
+        log_list = []
 
 
 if TRAIN:
