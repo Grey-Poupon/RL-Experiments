@@ -3,15 +3,12 @@ import random
 import gym
 import tensorflow as tf
 import numpy as np
-import imageio
-from skimage.transform import resize
-from google.colab import drive
-drive.mount('/content/gdrive')
+
 
 TRAIN = True
 
-#ENV_NAME = 'BreakoutDeterministic-v4'
-ENV_NAME = 'PongDeterministic-v4'
+ENV_NAME = 'BreakoutDeterministic-v4'
+#ENV_NAME = 'PongDeterministic-v4'
 # You can increase the learning rate to 0.00025 in Pong for quicker results
 
 class FrameProcessor(object):
@@ -116,6 +113,7 @@ class DQN(object):
         # Q value of the action that was performed
         self.Q = tf.reduce_sum(tf.multiply(self.q_values, tf.one_hot(self.action, self.n_actions, dtype=tf.float32)),
                                axis=1)
+        self.TD_Error = self.target_q-tf.reduce_max(self.q_values, axis=1)
 
         # Parameter updates
         self.loss = tf.reduce_mean(tf.losses.huber_loss(labels=self.target_q, predictions=self.Q))
@@ -165,7 +163,7 @@ class ExplorationExploitationScheduler(object):
 
     def get_epsilon(self, frame_number, evaluation=False):
         if evaluation:
-            eps = self.eps_evaluation
+            eps = -1
         elif frame_number < self.replay_memory_start_size:
             eps = self.eps_initial
         elif frame_number >= self.replay_memory_start_size and frame_number < self.replay_memory_start_size + self.eps_annealing_frames:
@@ -224,6 +222,15 @@ class ReplayMemory(object):
         self.new_states = np.empty((self.batch_size, self.agent_history_length,
                                     self.frame_height, self.frame_width), dtype=np.uint8)
         self.indices = np.empty(self.batch_size, dtype=np.int32)
+
+    def load(self, file):
+        self.actions = file['arr_0']
+        self.rewards = file['arr_1']
+        self.frames = file['arr_2']
+        self.terminal_flags = file['arr_3']
+        self.count = len(self.actions)
+        self.current = self.count - 1
+
 
     def add_experience(self, action, frame, reward, terminal):
         """
@@ -309,11 +316,11 @@ def learn(session, replay_memory, main_dqn, target_dqn, batch_size, gamma):
     # if the game is over, targetQ=rewards
     target_q = rewards + (gamma*double_q * (1-terminal_flags))
     # Gradient descend step to update the parameters of the main network
-    loss, _ = session.run([main_dqn.loss, main_dqn.update],
+    loss, _, TD_error = session.run([main_dqn.loss, main_dqn.update, main_dqn.TD_Error],
                           feed_dict={main_dqn.input:states,
                                      main_dqn.target_q:target_q,
                                      main_dqn.action:actions})
-    return loss
+    return loss, TD_error
 
 
 class TargetNetworkUpdater(object):
@@ -413,7 +420,7 @@ tf.reset_default_graph()
 
 # Control parameters
 MAX_EPISODE_LENGTH = 18000       # Equivalent of 5 minutes of gameplay at 60 frames per second
-EVAL_FREQUENCY = 200000          # Number of frames the agent sees between evaluations
+EVAL_FREQUENCY = 100000          # Number of frames the agent sees between evaluations
 EVAL_STEPS = 10000               # Number of frames for one evaluation
 NETW_UPDATE_FREQ = 10000         # Number of chosen actions between updating the target network.
                                  # According to Mnih et al. 2015 this is measured in the number of
@@ -441,9 +448,7 @@ BS = 32                          # Batch size
 PATH = "output/"                 # Gifs and checkpoints will be saved here
 SUMMARIES = "summaries"          # logdir for tensorboard
 RUNID = 'run_1'
-os.makedirs(PATH, exist_ok=True)
-os.makedirs(os.path.join(SUMMARIES, RUNID), exist_ok=True)
-SUMM_WRITER = tf.summary.FileWriter(os.path.join(SUMMARIES, RUNID))
+
 
 atari = Atari(ENV_NAME, NO_OP_STEPS)
 
@@ -472,27 +477,27 @@ def train():
         replay_memory_start_size=REPLAY_MEMORY_START_SIZE,
         max_frames=MAX_FRAMES)
 
+
     with tf.Session() as sess:
-        sess.run(init)
-
-        frame_number = 0
-        run = 0
+        #sess.run(init)
+        saver.restore(sess, "/home/Kapok/BaseLines_Saves/Breakout/Weights/9866587")
+        my_replay_memory.load(np.load("/home/Kapok/BaseLines_Saves/Breakout/Memory.npz"))
+        frame_number = 9866587
+        run = 10000
         rewards = []
-        loss_list = []
-
+        log_list = []
+        is_eval =False
         while frame_number < MAX_FRAMES:
 
-            ########################
-            ####### Training #######
-            ########################
             epoch_frame = 0
+            is_eval = True
             while epoch_frame < EVAL_FREQUENCY:
                 terminal_life_lost = atari.reset(sess)
                 episode_reward_sum = 0
                 run += 1
                 for _ in range(MAX_EPISODE_LENGTH):
                     # (4★)
-                    action = explore_exploit_sched.get_action(sess, frame_number, atari.state)
+                    action = explore_exploit_sched.get_action(sess, frame_number, atari.state, evaluation=is_eval)
                     # (5★)
                     processed_new_frame, reward, terminal, terminal_life_lost, _ = atari.step(sess, action)
                     frame_number += 1
@@ -509,25 +514,29 @@ def train():
                                                     terminal=terminal_life_lost)
 
                     if frame_number % UPDATE_FREQ == 0 and frame_number > REPLAY_MEMORY_START_SIZE:
-                        loss = learn(sess, my_replay_memory, MAIN_DQN, TARGET_DQN,
+                        loss, TD_error = learn(sess, my_replay_memory, MAIN_DQN, TARGET_DQN,
                                      BS, gamma=DISCOUNT_FACTOR)  # (8★)
-                        loss_list.append(loss)
+                        log_list.append([loss, TD_error])
                     if frame_number % NETW_UPDATE_FREQ == 0 and frame_number > REPLAY_MEMORY_START_SIZE:
                         update_networks(sess)  # (9★)
 
                     if terminal:
+                        if is_eval:
+                            print("\n############ EVALUATION ############\n")
+                            is_eval = False
                         print("Run: " + str(run) + "  Reward: " + str(episode_reward_sum) + "  Explore Rate: " + str(
                             explore_exploit_sched.get_epsilon(frame_number)) + "  Frame Count: " + str(frame_number))
                         terminal = False
                         break
 
 
-            #     # Save the network parameters
-            # saver.save(sess, PATH + str(run), global_step=frame_number)
-            # np.save(PATH + "Memory", np.array(
-            #     [my_replay_memory.actions, my_replay_memory.rewards, my_replay_memory.frames,
-            #      my_replay_memory.terminal_flags, my_replay_memory.states, my_replay_memory.new_states,
-            #      my_replay_memory.indices]))
+            # Save the network parameters, Memory & Logs
+            saver.save(sess, "/home/Kapok/BaseLines_Saves/"+str(frame_number))
+            np.savez("/home/Kapok/BaseLines_Saves/Memory", my_replay_memory.actions, my_replay_memory.rewards, my_replay_memory.frames,my_replay_memory.terminal_flags)
+            np.save("/home/Kapok/BaseLines_Saves/Logs_"+str(frame_number), log_list)
+            logs = []
+            print("saved")
+
 
 
 if TRAIN:
