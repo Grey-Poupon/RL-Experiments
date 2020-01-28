@@ -312,6 +312,17 @@ def learn(session, replay_memory, main_dqn, target_dqn, batch_size, gamma):
     # for every transition in the minibatch
     q_vals = session.run(target_dqn.q_values, feed_dict={target_dqn.input:new_states})
     double_q = q_vals[range(batch_size), arg_q_max]
+
+
+
+
+
+
+
+
+
+
+
     # Bellman equation. Multiplication with (1-terminal_flags) makes sure that
     # if the game is over, targetQ=rewards
     target_q = rewards + (gamma*double_q * (1-terminal_flags))
@@ -320,6 +331,17 @@ def learn(session, replay_memory, main_dqn, target_dqn, batch_size, gamma):
                           feed_dict={main_dqn.input:states,
                                      main_dqn.target_q:target_q,
                                      main_dqn.action:actions})
+
+
+
+
+
+
+
+
+
+
+
     return loss, TD_error
 
 
