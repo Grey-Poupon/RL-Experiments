@@ -379,7 +379,7 @@ class PEReplayMemory(object):
             states.append(t.resource[0])
             actions.append(t.resource[1])
             rewards.append(t.resource[2])
-            new_states.append(t.resource[3])
+            new_states.append(np.concatenate([t.resource[0][..., 1:], t.resource[3]], axis=-1))
             terminal_flags.append(t.resource[4])
             probabilties.append(t.get_sample_prob())
 
