@@ -2,6 +2,7 @@ import numpy as np
 import math
 import random
 import time
+from bisect import bisect_left
 
 class Item:
     def __init__(self, resource, TD_error= 200):
@@ -11,6 +12,7 @@ class Item:
         self.idx = None
         self.tree = None
         self.idx_change = False
+        self.rank= None
 
     def __eq__(self, other):
         return type(self) == type(other) and np.array_equal(self.resource , other.resource) and self.TD_error == other.TD_error and\
@@ -30,16 +32,14 @@ class Item:
 
     def calc_rank(self):
         old_prior = self.priority
-        rank = float(self.tree.get_right_most_node(self.tree.layers) + 1 - self.idx)
-        self.priority = 1 / rank
+        self.rank = float(self.tree.get_right_most_node(self.tree.layers) + 1 - self.idx)
+        self.priority = 1 / self.rank
 
         if self.priority == old_prior:
             self.tree.values_changed = True
 
-
-    def get_sample_prob(self):
-        return self.get_priority() / self.tree.get_sum_priority()
-
+    def __lt__(self, other):
+        return self.get_priority() < other
 
 class SumTree:
     def __init__(self, size, items):
@@ -82,6 +82,8 @@ class SumTree:
         #             = 1/1/(SumPrior)β
         #             = (SumPrior)β
         # MaxWeight = (SumPrior)β
+        if beta == 1:
+            return self.get_sum_priority()
         return math.pow(self.get_sum_priority(), beta)
 
     # Over time our heap stops looking like a sorted array and we have to resort it
@@ -111,15 +113,64 @@ class SumTree:
             min_ += step
         return items
 
-    def get_sum_priority(self):
-        if self.items_added or self.values_changes:
-            self.full_tree_sum_update()
-            self.items_added = False
-            self.values_changes = False
+    """
+    To sample a minibatch of size k, the range[0,P_total] is divided equally into k ranges.
+    Next, a value is uniformly sampled from each range.
+    Finally the transitions that correspond to each of these sampled values are retrieved from the tree
+    """
+    def get_minibatch2(self, batch_size):
+        leaves = self.get_leaves()
 
-        if self.tree[0] == 0:
-            raise EnvironmentError
-        return self.tree[0]
+        lp = self.get_sum_priority()
+        step = lp/batch_size
+        chosen_idx = 0
+
+        batch = []
+        val = 0
+        l_idx = 0
+
+        for i in range(1, batch_size+1):
+            val += step
+            r_idx = self.take_closest(leaves, val)
+
+            random_idx = leaves[random.randrange(l_idx, r_idx)] if l_idx!=r_idx else l_idx
+            batch.append(random_idx)
+
+            # print("L:", l_idx, "R:", r_idx)
+            # print("\t", val)
+            # if r_idx < len(leaves)-1:
+            #     print("\t", leaves[r_idx - 1].get_priority(), leaves[r_idx].get_priority(), leaves[r_idx+1].get_priority())
+            # else:
+            #     print("\t", leaves[r_idx - 1].get_priority(), leaves[r_idx].get_priority())
+            l_idx = r_idx
+
+        return batch
+
+    def take_closest(self, leaves, val):
+        pos = bisect_left(leaves, val)
+        if pos == 0:
+            return 0
+        return pos - 1
+
+    def H(self, n):
+        """Returns an approximate value of n-th harmonic number.
+
+           http://en.wikipedia.org/wiki/Harmonic_number
+        """
+        # Euler-Mascheroni constant
+        gamma = 0.57721566490153286060651209008240243104215933593992
+        return gamma + math.log(n) + 0.5 / n - 1. / (12 * n ** 2) + 1. / (120 * n ** 4)
+
+    def get_sum_priority(self):
+        return self.H(self.get_num_leaves())
+        # if self.items_added or self.values_changes:
+        #     self.full_tree_sum_update()
+        #     self.items_added = False
+        #     self.values_changes = False
+        #
+        # if self.tree[0] == 0:
+        #     raise EnvironmentError
+        # return self.tree[0]
 
     ##
     # Add item to tree
@@ -214,42 +265,41 @@ class SumTree:
         for i in range(idx, idx + node_count):
             self.update_sum_value(idx, bubble_up=bubble_up)
 
-
     def full_tree_sum_update(self):
-
-        left_node = self.get_left_most_node(self.layers)
-        right_node = self.get_right_most_node(self.layers)
-
-        tree_txt = []
-
-
-        for layer in range(self.layers - 1, 0, -1):
-            line = ""
-
-            left_node = self.get_parent(left_node)
-            right_node = self.get_parent(right_node)
-
-            if layer == self.layers - 1:
-                for i in range(left_node, right_node + 1):
-                    line += str(self.tree[i])+"   "
-
-                    left_idx    = self.get_left_child(i)
-                    right_idx   = self.get_right_child(i)
-                    left_child  = self.tree[left_idx]
-                    right_child = self.tree[right_idx]
-                    left_priority = left_child.get_priority()   if left_child  != 0 else 0
-                    right_priority = right_child.get_priority() if right_child != 0 else 0
-                    self.tree[i] = left_priority + right_priority
-
-            else:
-                for i in range(left_node, right_node + 1):
-                    line += str(self.tree[i]) + "   "
-                    self.tree[i] = self.tree[self.get_left_child(i)] + self.tree[self.get_right_child(i)]
-
-
-
-        self.items_added = False
-        self.values_changes = False
+        return
+        # left_node = self.get_left_most_node(self.layers)
+        # right_node = self.get_right_most_node(self.layers)
+        #
+        # tree_txt = []
+        #
+        #
+        # for layer in range(self.layers - 1, 0, -1):
+        #     line = ""
+        #
+        #     left_node = self.get_parent(left_node)
+        #     right_node = self.get_parent(right_node)
+        #
+        #     if layer == self.layers - 1:
+        #         for i in range(left_node, right_node + 1):
+        #             line += str(self.tree[i])+"   "
+        #
+        #             left_idx    = self.get_left_child(i)
+        #             right_idx   = self.get_right_child(i)
+        #             left_child  = self.tree[left_idx]
+        #             right_child = self.tree[right_idx]
+        #             left_priority = left_child.get_priority()   if left_child  != 0 else 0
+        #             right_priority = right_child.get_priority() if right_child != 0 else 0
+        #             self.tree[i] = left_priority + right_priority
+        #
+        #     else:
+        #         for i in range(left_node, right_node + 1):
+        #             line += str(self.tree[i]) + "   "
+        #             self.tree[i] = self.tree[self.get_left_child(i)] + self.tree[self.get_right_child(i)]
+        #
+        #
+        #
+        # self.items_added = False
+        # self.values_changes = False
     ##
     # Indexing
     ##
