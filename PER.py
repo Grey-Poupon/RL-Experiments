@@ -1,10 +1,10 @@
-
+import math
 import random
 import gym
 import tensorflow as tf
 import numpy as np
 from PER_Memory import Item, SumTree, PEReplayMemory
-
+import time
 TRAIN = True
 
 ENV_NAME = 'BreakoutDeterministic-v4'
@@ -221,16 +221,20 @@ def learn(session, PER_memory, main_dqn, target_dqn, batch_size, gamma):
     double_q = q_vals[range(batch_size), arg_q_max]
     # We use an importance sampling weight to reduce the bias introduces using PER
     # weight = (N·P(j))−β / Max Weight
-    N = PER_memory.tree.get_num_leaves()
-    P = probabilties
+    N = tf.placeholder(dtype=tf.float32)#
+    P = tf.placeholder(dtype=tf.float32)#
     # M = 1
-    B = PER_memory.tree.get_max_weight(1)
+    B = tf.placeholder(dtype=tf.float32)#
 
     # Calculcate weight as per PER
-    w = tf.math.pow((N * P), -B)
-    # Normalise using max Weight however max=1 as B=1 therofre is note needed
-    # importace_sampling_weight = tf.cast(tf.divide(w , M), dtype=tf.float32)
-    importace_sampling_weight = tf.cast(w, dtype=tf.float32)
+    w = math.pow(N * P, -B)
+    # Normalise using max Weight however max=1 as B=1 therofre is not needed
+    # importance_sampling_weight = tf.cast(tf.divide(w , M), dtype=tf.float32)
+    importace_sampling_weight = session.run(w, feed_dict={N:PER_memory.tree.get_num_leaves(),
+                                                          P:probabilties,
+                                                          B:PER_memory.tree.get_max_weight(1)})
+
+
 
     # Bellman equation. Multiplication with (1-terminal_flags) makes sure that
     # if the game is over, targetQ=rewards
@@ -400,25 +404,29 @@ def train():
 
 
     with tf.Session() as sess:
-        #sess.run(init)
-        saver.restore(sess, "/home/Kapok/BaseLines_Saves/Breakout/Weights/9866587")
-        my_replay_memory.load(np.load("/home/Kapok/BaseLines_Saves/Breakout/Memory.npz"))
-        frame_number = 9866587
-        run = 10000
+        sess.run(init)
+        #saver.restore(sess, "/home/Kapok/BaseLines_Saves/Breakout/Weights/9866587")
+        #my_replay_memory.load(np.load("/home/Kapok/BaseLines_Saves/Breakout/Memory.npz"))
+        frame_number = 0#REPLAY_MEMORY_START_SIZE - 500
+        run = 0
         rewards = []
         log_list = []
         is_eval =False
+
         while frame_number < MAX_FRAMES:
 
             epoch_frame = 0
             is_eval = True
             while epoch_frame < EVAL_FREQUENCY:
+
+                start = time.perf_counter()
                 terminal_life_lost = atari.reset(sess)
                 episode_reward_sum = 0
                 run += 1
                 for _ in range(MAX_EPISODE_LENGTH):
 
-                    action = explore_exploit_sched.get_action(sess, frame_number, atari.state, evaluation=is_eval)
+                    state = atari.state
+                    action = explore_exploit_sched.get_action(sess, frame_number, state, evaluation=is_eval)
                     processed_new_frame, reward, terminal, terminal_life_lost, _ = atari.step(sess, action)
                     frame_number += 1
                     epoch_frame += 1
@@ -429,10 +437,10 @@ def train():
 
                     # Store transition in the replay memory
                     my_replay_memory.add_experience(action=action,
-                                                    frame=processed_new_frame[:, :, 0],
+                                                    state=state,
+                                                    new_state=processed_new_frame,
                                                     reward=clipped_reward,
                                                     terminal=terminal_life_lost)
-
                     if frame_number % UPDATE_FREQ == 0 and frame_number > REPLAY_MEMORY_START_SIZE:
                         loss, TD_error = learn(sess, my_replay_memory, MAIN_DQN, TARGET_DQN,
                                      BS, gamma=DISCOUNT_FACTOR)
@@ -441,20 +449,21 @@ def train():
                         update_networks(sess)
 
                     if terminal:
+                        end = time.perf_counter()
                         if is_eval:
                             print("\n############ EVALUATION ############\n")
                             is_eval = False
                         print("Run: " + str(run) + "  Reward: " + str(episode_reward_sum) + "  Explore Rate: " + str(
-                            explore_exploit_sched.get_epsilon(frame_number)) + "  Frame Count: " + str(frame_number))
+                            explore_exploit_sched.get_epsilon(frame_number)) + "  Frame Count: " + str(frame_number) + "  Time:"+str(end-start))
                         terminal = False
                         break
 
 
             # Save the network parameters, Memory & Logs
-            saver.save(sess, "/home/Kapok/BaseLines_Saves/"+str(frame_number))
-            np.savez("/home/Kapok/BaseLines_Saves/Memory", my_replay_memory.actions, my_replay_memory.rewards, my_replay_memory.frames,my_replay_memory.terminal_flags)
-            np.save("/home/Kapok/BaseLines_Saves/Logs_"+str(frame_number), log_list)
-            logs = []
+            saver.save(sess, "/home/Kapok/Saves/PER/Breakout/Saves/"+str(frame_number))
+            np.savez("/home/Kapok/Saves/PER/Breakout/Memory/Memory", my_replay_memory.actions, my_replay_memory.rewards, my_replay_memory.frames,my_replay_memory.terminal_flags)
+            np.save("/home/Kapok/Saves/PER/Breakout/Logs/Logs_"+str(frame_number), log_list)
+            log_list = []
             print("saved")
 
 
