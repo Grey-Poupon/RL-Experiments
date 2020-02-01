@@ -120,6 +120,15 @@ class DQN(object):
         self.optimizer = tf.train.AdamOptimizer(learning_rate=self.learning_rate)
         self.update = self.optimizer.minimize(self.loss)
 
+        # weight = (N·P(j))−β / Max Weight
+        self.N = tf.placeholder(dtype=tf.float32)
+        self.P = tf.placeholder(dtype=tf.float32)
+        # M = 1
+        self.B = tf.placeholder(dtype=tf.float32)
+
+        # Calculcate weight as per PER
+        self.importance_weight = tf.math.pow((self.N * self.P), -self.B)
+
 
 class ExplorationExploitationScheduler(object):
     """Determines an action according to an epsilon greedy strategy with annealing epsilon"""
@@ -220,19 +229,13 @@ def learn(session, PER_memory, main_dqn, target_dqn, batch_size, gamma):
 
     double_q = q_vals[range(batch_size), arg_q_max]
     # We use an importance sampling weight to reduce the bias introduces using PER
-    # weight = (N·P(j))−β / Max Weight
-    N = tf.placeholder(shape=[32], dtype=tf.float32)
-    P = tf.placeholder(shape=[32], dtype=tf.float32)
-    # M = 1
-    B = tf.placeholder(shape=[32], dtype=tf.float32)
 
-    # Calculcate weight as per PER
-    w = tf.math.pow((N * P), -B)
-    # Normalise using max Weight however max=1 as B=1 therofre is note needed
-    # importace_sampling_weight = tf.cast(tf.divide(w , M), dtype=tf.float32)
-    importace_sampling_weight = session.run(w, feed_dict={N: PER_memory.tree.get_num_leaves(),
-                                                          P: probabilties,
-                                                          B: PER_memory.tree.get_max_weight(1)})
+    # Normalise using max Weight however max=1 as B=1 therofore is not needed
+
+    importace_sampling_weight = session.run(main_dqn.importance_weight, feed_dict={
+                                                        main_dqn.N: PER_memory.tree.get_num_leaves(),
+                                                        main_dqn.P: probabilties,
+                                                        main_dqn.B: PER_memory.tree.get_max_weight(1)})
 
     # Bellman equation. Multiplication with (1-terminal_flags) makes sure that
     # if the game is over, targetQ=rewards
