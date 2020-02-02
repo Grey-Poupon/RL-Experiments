@@ -414,7 +414,12 @@ def train():
         sess.run(init)
         #saver.restore(sess, "/home/Kapok/BaseLines_Saves/Breakout/Weights/9866587")
         #my_replay_memory.load(np.load("/home/Kapok/BaseLines_Saves/Breakout/Memory.npz"))
-        frame_number = 0#REPLAY_MEMORY_START_SIZE - 500
+        frame_number = 0
+        run = 0
+        sess.run(init)
+        #saver.restore(sess, "/home/Kapok/BaseLines_Saves/Breakout/Weights/9866587")
+        #my_replay_memory.load(np.load("/home/Kapok/BaseLines_Saves/Breakout/Memory.npz"))
+        frame_number = 0
         run = 0
         rewards = []
         log_list = []
@@ -448,6 +453,7 @@ def train():
                                                     new_state=processed_new_frame,
                                                     reward=clipped_reward,
                                                     terminal=terminal_life_lost)
+
                     if frame_number % UPDATE_FREQ == 0 and frame_number > REPLAY_MEMORY_START_SIZE:
                         loss, TD_error = learn(sess, my_replay_memory, MAIN_DQN, TARGET_DQN,
                                      BS, gamma=DISCOUNT_FACTOR)

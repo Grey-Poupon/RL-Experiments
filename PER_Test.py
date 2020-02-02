@@ -1,4 +1,6 @@
 import unittest
+from collections import deque
+
 from PER_Memory import PEReplayMemory, SumTree, Item
 import random
 import time
@@ -16,8 +18,9 @@ class PER_TEST(unittest.TestCase):
         for leaf in sumTree.get_leaves():
             if curr is None:
                 curr = abs(leaf.TD_error)
+                continue
 
-            self.assertFalse(abs(leaf.TD_error) < curr)
+            self.assertGreaterEqual(curr, abs(leaf.TD_error))
             curr = abs(leaf.TD_error)
 
     def test_priority_order(self):
@@ -30,7 +33,7 @@ class PER_TEST(unittest.TestCase):
                 curr = leaf.get_priority()
                 continue
 
-            self.assertTrue(leaf.get_priority() > curr)
+            self.assertGreaterEqual(curr, leaf.get_priority())
             curr = leaf.get_priority()
 
     def test_sum_priority(self):
@@ -41,7 +44,7 @@ class PER_TEST(unittest.TestCase):
         for leaf in sumTree.get_leaves():
                 p += leaf.get_priority()
 
-        self.assertEqual(p, sumTree.get_sum_priority())
+        self.assertAlmostEqual(p, sumTree.get_sum_priority(), places=8)
 
     def test_num_leaves(self):
         items = [Item("A", 6), Item("A", 3), Item("A", 1), Item("A", 0), Item("A", 9),
@@ -55,20 +58,14 @@ class PER_TEST(unittest.TestCase):
                  Item("A", 8), Item("A", 5), Item("A", 8), Item("A", 7), Item("A", -1)]
         sumTree = SumTree(10, items)
 
-        self.assertListEqual(sumTree.get_leaves(), items)
+        self.assertEqual(sumTree.get_leaves(), deque(items, maxlen=10))
 
     def test_leaf_internal_idx(self):
         sumTree = SumTree(10, [Item("A", 6), Item("A", 3), Item("A", 1), Item("A", 0), Item("A", 9), Item("A", 8),
                                Item("A", 5), Item("A", 8), Item("A", 7), Item("A", -1)])
 
-        for leaf in sumTree.get_leaves():
-            leaf.update_TD_error(random.randrange(10))
-        sumTree.sort_tree()
-
-        l = sumTree.get_left_most_node(sumTree.layers)
-        r = sumTree.get_right_most_node(sumTree.layers)
-        for idx in range(l, r+1):
-            self.assertEqual(sumTree.tree[idx].idx, idx)
+        for idx in range(sumTree.get_num_leaves()):
+            self.assertEqual(sumTree.tree[idx].idx, idx - sumTree.idx_shift)
 
     def test_remove_add_items(self):
         items = [Item("A", 6), Item("A", 3), Item("A", 1), Item("A", 0), Item("A", 9), Item("A", 8),  Item("A", 5)]
@@ -81,7 +78,7 @@ class PER_TEST(unittest.TestCase):
         sumTree.add_item(y)
         sumTree.add_item(z)
 
-        self.assertListEqual(sumTree.get_leaves()[-3:], [x,y,z])
+        self.assertListEqual(list(sumTree.get_leaves())[-3:], [x,y,z])
 
     def test_changing_priority(self):
         items = [Item("A", 6), Item("A", 3), Item("A", 1), Item("A", 0), Item("A", 9), Item("A", 8),  Item("A", 5)]
@@ -98,8 +95,8 @@ class PER_TEST(unittest.TestCase):
             if curr is None:
                 curr = leaf.get_priority()
                 continue
-            print(leaf.get_priority())
-            self.assertTrue(leaf.get_priority() > curr)
+
+            self.assertGreaterEqual(curr, leaf.get_priority())
             curr = leaf.get_priority()
 
     def test_adding_priority(self):
@@ -113,16 +110,16 @@ class PER_TEST(unittest.TestCase):
         for leaf in sumTree.get_leaves():
             if curr is None:
                 curr = leaf.get_priority()
-                print(curr)
                 continue
-            print(leaf.get_priority())
-            self.assertTrue(leaf.get_priority() > curr)
+
+            self.assertGreaterEqual(curr, leaf.get_priority())
             curr = leaf.get_priority()
 
     def test_adding_speed(self):
         items = [Item("A", 6), Item("A", 3), Item("A", 1), Item("A", 0), Item("A", 9), Item("A", 8), Item("A", 5)]
         sumTree = SumTree(1000000, items)
 
+        print("Adding Speed")
         for x in items:
             start = time.perf_counter()
             sumTree.add_item(x)
@@ -131,38 +128,24 @@ class PER_TEST(unittest.TestCase):
 
             print("Time:", elapsed_time)
             self.assertLessEqual(elapsed_time, 0.3)
-
-    def test_full_resum_speed(self):
-        items = [Item("A", 3), Item("A", 1), Item("A", 0), Item("A", 9), Item("A", 8), Item("A", 5)]*8
-        sumTree = SumTree(1000000, items)
-        sumTree.add_item(Item("A", 6))
-
-
-        start = time.perf_counter()
-        sumTree.full_tree_sum_update()
-        end = time.perf_counter()
-
-        elapsed_time = end - start
-        print("Time:", elapsed_time)
-
-        self.assertLessEqual(elapsed_time, 0.3)
+        print("\n")
 
     def test_minibatch_speed(self):
         items = [Item("A", 6), Item("A", 3), Item("A", 1), Item("A", 0), Item("A", 9), Item("A", 8), Item("A", 5),Item("A", 6), Item("A", 3), Item("A", 1), Item("A", 0), Item("A", 9), Item("A", 8), Item("A", 5),Item("A", 6), Item("A", 3), Item("A", 1), Item("A", 0), Item("A", 9), Item("A", 8), Item("A", 5),Item("A", 6), Item("A", 3), Item("A", 1), Item("A", 0), Item("A", 9), Item("A", 8), Item("A", 5),Item("A", 6), Item("A", 3), Item("A", 1), Item("A", 0), Item("A", 9), Item("A", 8), Item("A", 5),Item("A", 6), Item("A", 3), Item("A", 1), Item("A", 0), Item("A", 9), Item("A", 8), Item("A", 5),Item("A", 6), Item("A", 3), Item("A", 1), Item("A", 0), Item("A", 9), Item("A", 8), Item("A", 5),Item("A", 6), Item("A", 3), Item("A", 1), Item("A", 0), Item("A", 9), Item("A", 8), Item("A", 5),Item("A", 6), Item("A", 3), Item("A", 1), Item("A", 0), Item("A", 9), Item("A", 8), Item("A", 5),Item("A", 6), Item("A", 3), Item("A", 1), Item("A", 0), Item("A", 9), Item("A", 8), Item("A", 5),Item("A", 6), Item("A", 3), Item("A", 1), Item("A", 0), Item("A", 9), Item("A", 8), Item("A", 5),Item("A", 6), Item("A", 3), Item("A", 1), Item("A", 0), Item("A", 9), Item("A", 8), Item("A", 5),Item("A", 6), Item("A", 3), Item("A", 1), Item("A", 0), Item("A", 9), Item("A", 8), Item("A", 5),Item("A", 6), Item("A", 3), Item("A", 1), Item("A", 0), Item("A", 9), Item("A", 8), Item("A", 5),Item("A", 6), Item("A", 3), Item("A", 1), Item("A", 0), Item("A", 9), Item("A", 8), Item("A", 5),Item("A", 6), Item("A", 3), Item("A", 1), Item("A", 0), Item("A", 9), Item("A", 8), Item("A", 5),Item("A", 6), Item("A", 3), Item("A", 1), Item("A", 0), Item("A", 9), Item("A", 8), Item("A", 5)]
         sumTree = SumTree(1000000, items)
-        start = time.perf_counter()
-        sumTree.get_minibatch(32)
-        end = time.perf_counter()
+        # start = time.perf_counter()
+        # sumTree.get_minibatch(32)
+        # end = time.perf_counter()
 
         start2 = time.perf_counter()
         sumTree.get_minibatch2(32)
         end2 = time.perf_counter()
 
-        print("OG Batch", end-start)
-        print("New Batch", end2-start2)
-
-
-        self.assertLessEqual(end-start, 0.003)
+ ##       print("MinB  ", end-start)
+        print("Minibatch Speed")
+        print("Time: ", end2-start2)
+        print("\n")
+        self.assertLessEqual(end2-start2, 0.003)
 
 if __name__ == '__main__':
     unittest.main()
