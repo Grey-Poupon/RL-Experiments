@@ -2,6 +2,7 @@ import numpy as np
 import math
 import random
 import time
+from collections import deque
 from bisect import bisect_left
 
 class Item:
@@ -11,32 +12,25 @@ class Item:
         self.priority = None
         self.idx = None
         self.tree = None
-        self.idx_change = False
-        self.rank= None
+        self.rank = None
 
     def __eq__(self, other):
         return type(self) == type(other) and np.array_equal(self.resource , other.resource) and self.TD_error == other.TD_error and\
                self.get_priority() == other.get_priority() and self.idx == other.idx
 
     def get_priority(self):
-        if self.idx_change or self.tree.items_added:
-            self.calc_rank()
+        self.calc_rank()
         return self.priority
 
     def update_TD_error(self, TD_error):
         self.TD_error = TD_error
 
-    def set_idx(self, idx):
-        self.idx = idx
-        self.idx_change = True
-
     def calc_rank(self):
-        old_prior = self.priority
-        self.rank = float(self.tree.get_right_most_node(self.tree.layers) + 1 - self.idx)
+        self.rank = self.get_idx() + 1
         self.priority = 1 / self.rank
 
-        if self.priority == old_prior:
-            self.tree.values_changed = True
+    def get_idx(self):
+        return self.idx - self.tree.idx_shift
 
     def __lt__(self, other):
         return self.get_priority() < other
@@ -45,24 +39,20 @@ class SumTree:
     def __init__(self, size, items):
 
         # Get the size needed for the binary tree
-        self.layers = np.log2(size)
-        self.layers = math.ceil(self.layers) + 1
 
-        self.layers = int(self.layers)
-        self.size = int(math.pow(2, self.layers))
-        self.values_changes = False
-        self.items_added = False
-        self.first_empty_leaf = self.get_left_most_node(self.layers) + len(items)
+        self.size = size
         self.empty_leaves = self.size - len(items)
-
-        # Init tree
-        self.tree = list(np.zeros(self.size))
+        self.idx_shift = 0
 
         # Insert items into leaves / Build tree
-        items.sort(key=lambda x: abs(x.TD_error), reverse=False)
-        for i in items:
+        items.sort(key=lambda x: abs(x.TD_error), reverse=True)
+
+        # Init tree
+        self.tree = deque(items, maxlen=self.size)
+
+        for idx, i in enumerate(self.tree):
             i.tree = self
-        self.insert_leaves(items)
+            i.idx = idx
 
 
 
@@ -88,9 +78,7 @@ class SumTree:
 
     # Over time our heap stops looking like a sorted array and we have to resort it
     def sort_tree(self):
-        leaves = self.get_leaves()
-        leaves.sort(key=lambda x: abs(x.TD_error), reverse=False)
-        self.insert_leaves(leaves)
+        self.tree.sort(key=lambda x: abs(x.TD_error), reverse=False)
 
     # Proportional prioritization as per PER
     def get_minibatch(self, batch_size):
@@ -123,7 +111,6 @@ class SumTree:
 
         lp = self.get_sum_priority()
         step = lp/batch_size
-        chosen_idx = 0
 
         batch = []
         val = 0
@@ -136,12 +123,6 @@ class SumTree:
             random_idx = leaves[random.randrange(l_idx, r_idx)] if l_idx!=r_idx else l_idx
             batch.append(random_idx)
 
-            # print("L:", l_idx, "R:", r_idx)
-            # print("\t", val)
-            # if r_idx < len(leaves)-1:
-            #     print("\t", leaves[r_idx - 1].get_priority(), leaves[r_idx].get_priority(), leaves[r_idx+1].get_priority())
-            # else:
-            #     print("\t", leaves[r_idx - 1].get_priority(), leaves[r_idx].get_priority())
             l_idx = r_idx
 
         return batch
@@ -178,160 +159,33 @@ class SumTree:
     def add_item(self, item):
         if item.tree is None:
             item.tree = self
-
-        free_idx = self.first_empty_leaf
-        left_idx = self.get_left_most_node(self.layers)
-        # Find empty leaf
-        while free_idx < self.size and self.tree[free_idx] != 0:
-            free_idx += 1
-
-        # If tree is full delete "smallest" leaf
-        if free_idx >= self.size:
-
-            # shift leaves 1 to the left
-
-            self.tree[left_idx:-1] = self.tree[left_idx + 1:]
-            # Set item as newest/largest leaf
-            self.tree[-1] = item
-            # update parent -- Only necessary if p = |TD_error| as rank won't change respective to parents
-            # self.update_sum_value(self.get_parent(item.idx))
-
-            # update idx for moved items
-            for idx, leaf in enumerate(self.get_leaves()):
-                leaf.set_idx(idx + left_idx)
-
-            self.values_changes = True
+        if self.empty_leaves == 0:
+            self.tree.append(item)
+            self.idx_shift += 1
+            item.idx = self.size + self.idx_shift
         else:
-            # Set leaf & do updates
-            self.tree[free_idx] = item
-            self.tree[free_idx].set_idx(free_idx)
-            self.items_added = True
-
-            # Update leaf count
+            self.tree.append(item)
+            item.idx = self.size - self.empty_leaves + self.idx_shift
             self.empty_leaves -= 1
-            self.first_empty_leaf = free_idx + 1
 
-    ##
-    # Tree Building
-    ##
-    def insert_leaves(self, leaves):
-        if len(leaves) == 0:
-            return
-
-        # Get left-most leaf
-        left_idx = self.get_left_most_node(self.layers)
-
-        # Insert leaves
-        for idx in range(len(leaves)):
-            if left_idx + idx > self.size - 1:
-                break
-            self.tree[left_idx + idx] = leaves[idx]
-            self.tree[left_idx + idx].set_idx(left_idx + idx)
-
-
-
-        # Update sums
-        self.full_tree_sum_update()
-
-    ##
-    # Value Updates
-    ##
-
-    def update_sum_value(self, idx, bubble_up=True):
-
-
-        l_idx = self.get_left_child(idx)
-        r_idx = self.get_right_child(idx)
-
-        # If we are summing leaves we need the .priority else the item is the priority
-        if self.get_left_most_node(self.layers) <= l_idx:
-
-            left = 0 if self.tree[l_idx] == 0 else self.tree[l_idx].get_priority()
-            right = 0 if self.tree[r_idx] == 0 else self.tree[r_idx].get_priority()
-
-        else:
-            left = 0 if self.tree[l_idx] == 0 else self.tree[l_idx]
-            right = 0 if self.tree[r_idx] == 0 else self.tree[r_idx]
-
-        self.tree[idx] = left + right
-
-        if bubble_up and idx != 0:
-            self.update_sum_value(self.get_parent(idx))
-
-    def update_layer_of_values(self, layer, bubble_up=True):
-        node_count = math.pow(2, layer)
-        idx = self.get_left_most_node(layer)
-
-        for i in range(idx, idx + node_count):
-            self.update_sum_value(idx, bubble_up=bubble_up)
-
-    def full_tree_sum_update(self):
-        return
-        # left_node = self.get_left_most_node(self.layers)
-        # right_node = self.get_right_most_node(self.layers)
-        #
-        # tree_txt = []
-        #
-        #
-        # for layer in range(self.layers - 1, 0, -1):
-        #     line = ""
-        #
-        #     left_node = self.get_parent(left_node)
-        #     right_node = self.get_parent(right_node)
-        #
-        #     if layer == self.layers - 1:
-        #         for i in range(left_node, right_node + 1):
-        #             line += str(self.tree[i])+"   "
-        #
-        #             left_idx    = self.get_left_child(i)
-        #             right_idx   = self.get_right_child(i)
-        #             left_child  = self.tree[left_idx]
-        #             right_child = self.tree[right_idx]
-        #             left_priority = left_child.get_priority()   if left_child  != 0 else 0
-        #             right_priority = right_child.get_priority() if right_child != 0 else 0
-        #             self.tree[i] = left_priority + right_priority
-        #
-        #     else:
-        #         for i in range(left_node, right_node + 1):
-        #             line += str(self.tree[i]) + "   "
-        #             self.tree[i] = self.tree[self.get_left_child(i)] + self.tree[self.get_right_child(i)]
-        #
-        #
-        #
-        # self.items_added = False
-        # self.values_changes = False
     ##
     # Indexing
     ##
 
-    def get_left_child(self, idx):
-        return int((2 * idx) + 1)
+    def get_left_most_node(self):
+        return 0
 
-    def get_right_child(self, idx):
-        return int((2 * idx) + 2)
-
-    def get_parent(self, idx):
-        return int((idx - 1) // 2)
-
-    def get_left_most_node(self, layer):
-        return int(math.pow(2, layer-1)-1)
-
-    def get_right_most_node(self, layer):
+    def get_right_most_node(self):
         # Get right most leaf
         idx = self.get_left_most_node(self.layers) + self.get_num_leaves() - 1
 
-        # shuffle up
-        for i in range(self.layers - layer):
-            idx = self.get_parent(idx)
         return idx
 
     def get_num_leaves(self):
         return int(self.size - self.empty_leaves)
 
     def get_leaves(self):
-        l = self.get_left_most_node(self.layers)
-        r = l + self.get_num_leaves() - 1
-        return self.tree[l:r+1]
+        return self.tree
 
     def save(self):
 

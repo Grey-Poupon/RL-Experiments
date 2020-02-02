@@ -405,11 +405,11 @@ def train():
 
 
     with tf.Session() as sess:
-        #sess.run(init)
-        saver.restore(sess, "/home/Kapok/BaseLines_Saves/Breakout/Weights/9866587")
-        my_replay_memory.load(np.load("/home/Kapok/BaseLines_Saves/Breakout/Memory.npz"))
-        frame_number = 9866587
-        run = 10000
+        sess.run(init)
+        #saver.restore(sess, "/home/Kapok/BaseLines_Saves/Breakout/Weights/9866587")
+        #my_replay_memory.load(np.load("/home/Kapok/BaseLines_Saves/Breakout/Memory.npz"))
+        frame_number = 0
+        run = 0
         rewards = []
         log_list = []
         is_eval =False
@@ -457,7 +457,8 @@ def train():
 
             # Save the network parameters, Memory & Logs
             saver.save(sess, "/home/Kapok/BaseLines_Saves/"+str(frame_number))
-            np.savez("/home/Kapok/BaseLines_Saves/Memory", my_replay_memory.actions, my_replay_memory.rewards, my_replay_memory.frames,my_replay_memory.terminal_flags)
+            states, actions, rewards, new_states, terminals, TD_errors = my_replay_memory.save()
+            np.savez("/home/Kapok/BaseLines_Saves/Memory", states, actions, rewards, new_states, terminals, TD_errors)
             np.save("/home/Kapok/BaseLines_Saves/Logs_"+str(frame_number), log_list)
             logs = []
             print("saved")
