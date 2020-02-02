@@ -127,7 +127,7 @@ class DQN(object):
         self.B = tf.placeholder(dtype=tf.float32)
 
         # Calculcate weight as per PER
-        self.importance_weight = tf.math.pow((self.N * self.P), -self.B)
+        self.importance_weight = tf.pow((self.N * self.P), -self.B)
 
 
 class ExplorationExploitationScheduler(object):
@@ -357,7 +357,7 @@ DISCOUNT_FACTOR = 0.99           # gamma in the Bellman equation
 REPLAY_MEMORY_START_SIZE = 50000 # Number of completely random actions,
                                  # before the agent starts learning
 MAX_FRAMES = 30000000            # Total number of frames the agent sees
-MEMORY_SIZE = 1000000            # Number of transitions stored in the replay memory
+MEMORY_SIZE = 500000            # Number of transitions stored in the replay memory
 NO_OP_STEPS = 10                 # Number of 'NOOP' or 'FIRE' actions at the beginning of an
                                  # evaluation episode
 UPDATE_FREQ = 4                  # Every four actions a gradient descend step is performed
@@ -392,6 +392,12 @@ saver = tf.train.Saver()
 MAIN_DQN_VARS = tf.trainable_variables(scope='mainDQN')
 TARGET_DQN_VARS = tf.trainable_variables(scope='targetDQN')
 
+
+def save_data(frame_number, my_replay_memory, log_list, sess):
+    saver.save(sess, "/home/Kapok/Saves/PER/Breakout/Saves/" + str(frame_number))
+    states, actions, rewards, new_states, terminals, TD_errors = my_replay_memory.save()
+    np.savez("/home/Kapok/Saves/PER/Breakout/Memory/Memory", states, actions, rewards, new_states, terminals, TD_errors)
+    np.save("/home/Kapok/Saves/PER/Breakout/Logs/Logs_" + str(frame_number), log_list)
 
 def train():
     """Contains the training and evaluation loops"""
@@ -454,16 +460,13 @@ def train():
                         if is_eval:
                             print("\n############ EVALUATION ############\n")
                             is_eval = False
-                        print("Run: " + str(run) + "  Reward: " + str(episode_reward_sum) + "  Explore Rate: " + str(
-                            explore_exploit_sched.get_epsilon(frame_number)) + "  Frame Count: " + str(frame_number) + "  Time:"+str(end-start))
+                        print("Run: " + str(run) + "  Reward: " + str(episode_reward_sum) + "  Explore Rate: " + str(explore_exploit_sched.get_epsilon(frame_number)) + "  Frame Count: " + str(frame_number) + "  Time:"+str(end-start))
                         terminal = False
                         break
 
 
             # Save the network parameters, Memory & Logs
-            saver.save(sess, "/home/Kapok/Saves/PER/Breakout/Saves/"+str(frame_number))
-            np.savez("/home/Kapok/Saves/PER/Breakout/Memory/Memory", my_replay_memory.actions, my_replay_memory.rewards, my_replay_memory.frames,my_replay_memory.terminal_flags)
-            np.save("/home/Kapok/Saves/PER/Breakout/Logs/Logs_"+str(frame_number), log_list)
+            save_data(frame_number, my_replay_memory, log_list, sess)
             log_list = []
             print("saved")
 

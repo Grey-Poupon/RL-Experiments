@@ -23,6 +23,9 @@ class Item:
             self.calc_rank()
         return self.priority
 
+    def get_sample_prob(self):
+        return self.get_priority()/self.tree.get_sum_priority()
+
     def update_TD_error(self, TD_error):
         self.TD_error = TD_error
 
@@ -133,8 +136,8 @@ class SumTree:
             val += step
             r_idx = self.take_closest(leaves, val)
 
-            random_idx = leaves[random.randrange(l_idx, r_idx)] if l_idx!=r_idx else l_idx
-            batch.append(random_idx)
+            random_idx = random.randrange(l_idx, r_idx) if l_idx!=r_idx else l_idx
+            batch.append(leaves[random_idx])
 
             # print("L:", l_idx, "R:", r_idx)
             # print("\t", val)
@@ -336,10 +339,10 @@ class SumTree:
     def save(self):
 
         leaves = self.get_leaves()
-        states     = np.empty((len(leaves), 4,84,84,1), dtype=np.int)
+        states     = np.empty((len(leaves), 84,84,4), dtype=np.int)
         actions    = np.empty(len(leaves), dtype=np.int)
         rewards    = np.empty(len(leaves), dtype=np.float64)
-        new_states = np.empty((len(leaves), 4,84,84,1), dtype=np.int)
+        new_states = np.empty((len(leaves), 84,84,1), dtype=np.int)
         terminals  = np.empty(len(leaves), dtype=np.bool)
         TD_errors  = np.empty(len(leaves))
 
@@ -421,7 +424,7 @@ class PEReplayMemory(object):
         if self.tree.get_num_leaves() < self.batch_size:
             raise ValueError('Not enough memories to get a minibatch')
 
-        transitions = self.tree.get_minibatch(self.batch_size)
+        transitions = self.tree.get_minibatch2(self.batch_size)
 
         states, actions, rewards, new_states, terminal_flags, probabilties = [], [], [], [], [], []
 
