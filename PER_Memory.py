@@ -8,6 +8,8 @@ from bisect import bisect_left
 
 class Item:
     def __init__(self, resource, TD_error= 200):
+        if TD_error == None:
+            TD_error=200
         self.resource = resource
         self.TD_error = TD_error
         self.priority = None
@@ -264,7 +266,7 @@ class PEReplayMemory(object):
             raise ValueError('Dimension of frame is wrong!')
 
         resource = [state, action, reward, new_state, terminal]
-        memory = Item(resource, None)
+        memory = Item(resource)
         memory.tree = self.tree
 
         self.tree.add_item(memory)
