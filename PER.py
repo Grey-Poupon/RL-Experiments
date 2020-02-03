@@ -318,6 +318,7 @@ class Atari(object):
             action: Integer, action the agent performs
         Performs an action and observes the reward and terminal state from the environment
         """
+        #print(action)
         new_frame, reward, terminal, info = self.env.step(action)
 
         if info['ale.lives'] < self.last_lives:
@@ -327,8 +328,8 @@ class Atari(object):
         self.last_lives = info['ale.lives']
 
         processed_new_frame = self.process_frame(sess, new_frame)
-        new_state = np.append(self.state[:, :, 1:], processed_new_frame, axis=2)
-        self.state = new_state
+
+        self.state = np.append(self.state[:, :, 1:], processed_new_frame, axis=2)
 
         return processed_new_frame, reward, terminal, terminal_life_lost, new_frame
 
@@ -419,12 +420,12 @@ def train():
         sess.run(init)
         #saver.restore(sess, "/home/Kapok/BaseLines_Saves/Breakout/Weights/9866587")
         #my_replay_memory.load(np.load("/home/Kapok/BaseLines_Saves/Breakout/Memory.npz"))
-        frame_number = 0
+        frame_number = 0#REPLAY_MEMORY_START_SIZE-100
         run = 0
         rewards = []
         log_list = []
         is_eval =False
-
+        print("Start\n\n")
         while frame_number < MAX_FRAMES:
 
             epoch_frame = 0
@@ -435,14 +436,20 @@ def train():
                 terminal_life_lost = atari.reset(sess)
                 episode_reward_sum = 0
                 run += 1
-                for _ in range(MAX_EPISODE_LENGTH):
+                for epFrame in range(MAX_EPISODE_LENGTH):
 
                     state = atari.state
                     action = explore_exploit_sched.get_action(sess, frame_number, state, evaluation=is_eval)
+                    #log_list.append(action)
                     processed_new_frame, reward, terminal, terminal_life_lost, _ = atari.step(sess, action)
                     frame_number += 1
                     epoch_frame += 1
                     episode_reward_sum += reward
+
+                    if frame_number % 50 == 0 and frame_number < 500:
+                         print("Sleep")
+                         time.sleep(0.5)
+                         print("Awake")
 
                     # Clip the reward
                     clipped_reward = clip_reward(reward)
