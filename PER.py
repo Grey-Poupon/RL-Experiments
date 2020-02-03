@@ -127,7 +127,7 @@ class DQN(object):
         self.B = tf.placeholder(dtype=tf.float32)
 
         # Calculcate weight as per PER
-        self.importance_weight = tf.math.pow((self.N * self.P), -self.B)
+        self.importance_weight = tf.pow((self.N * self.P), -self.B)
 
 
 class ExplorationExploitationScheduler(object):
@@ -395,13 +395,20 @@ TARGET_DQN_VARS = tf.trainable_variables(scope='targetDQN')
 
 def save_data(frame_number, my_replay_memory, log_list, sess):
     saver.save(sess, "/home/Kapok/Saves/PER/Breakout/Saves/" + str(frame_number))
-    states, actions, rewards, new_states, terminals, TD_errors = my_replay_memory.save()
-    np.savez("/home/Kapok/Saves/PER/Breakout/Memory/Memory", states, actions, rewards, new_states, terminals, TD_errors)
+    with open('memory.pkl', 'wb') as output:
+        pickle.dump(my_replay_memory, output, pickle.HIGHEST_PROTOCOL)
     np.save("/home/Kapok/Saves/PER/Breakout/Logs/Logs_" + str(frame_number), log_list)
+
+def load_data(sess):
+    saver.restore(sess, "/home/Kapok/BaseLines_Saves/Breakout/Saves/400288")
+    with open('memory.pkl', 'rb') as input:
+        my_replay_memory = pickle.load(input)
+        print("Loaded Memory")
+        return sess, my_replay_memory
 
 def train():
     """Contains the training and evaluation loops"""
-    my_replay_memory = PEReplayMemory(size=MEMORY_SIZE, batch_size=BS)
+    #my_replay_memory = PEReplayMemory(size=MEMORY_SIZE, batch_size=BS)
     update_networks = TargetNetworkUpdater(MAIN_DQN_VARS, TARGET_DQN_VARS)
 
     explore_exploit_sched = ExplorationExploitationScheduler(
@@ -411,11 +418,10 @@ def train():
 
 
     with tf.Session() as sess:
-        sess.run(init)
-        #saver.restore(sess, "/home/Kapok/BaseLines_Saves/Breakout/Weights/9866587")
-        #my_replay_memory.load(np.load("/home/Kapok/BaseLines_Saves/Breakout/Memory.npz"))
-        frame_number = 0
-        run = 0
+        #sess.run(init)
+        sess, my_replay_memory = load_data(sess)
+        frame_number = 400288
+        run = 2179
         rewards = []
         log_list = []
         is_eval =False
@@ -435,15 +441,15 @@ def train():
                     state = atari.state
                     action = explore_exploit_sched.get_action(sess, frame_number, state, evaluation=is_eval)
                     #log_list.append(action)
+                    #print(action)
                     processed_new_frame, reward, terminal, terminal_life_lost, _ = atari.step(sess, action)
                     frame_number += 1
                     epoch_frame += 1
                     episode_reward_sum += reward
 
-                    if frame_number % 50 == 0 and frame_number < 500:
-                         print("Sleep")
-                         time.sleep(0.5)
-                         print("Awake")
+                    if frame_number % 10 == 0 and frame_number < 500:
+                         print(log_list)
+                         log_list = []
 
                     # Clip the reward
                     clipped_reward = clip_reward(reward)
