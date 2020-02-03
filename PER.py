@@ -1,4 +1,4 @@
-
+import pickle
 import random
 import gym
 import tensorflow as tf
@@ -457,8 +457,7 @@ def train():
 
             # Save the network parameters, Memory & Logs
             saver.save(sess, "/home/Kapok/BaseLines_Saves/"+str(frame_number))
-            states, actions, rewards, new_states, terminals, TD_errors = my_replay_memory.save()
-            np.savez("/home/Kapok/BaseLines_Saves/Memory", states, actions, rewards, new_states, terminals, TD_errors)
+
             np.save("/home/Kapok/BaseLines_Saves/Logs_"+str(frame_number), log_list)
             logs = []
             print("saved")
