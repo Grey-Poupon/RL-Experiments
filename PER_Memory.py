@@ -5,6 +5,7 @@ import time
 from collections import deque
 from bisect import bisect_left
 
+
 class Item:
     def __init__(self, resource, TD_error= 200):
         self.resource = resource
@@ -37,6 +38,7 @@ class Item:
 
     def __lt__(self, other):
         return self.get_priority() < other
+
 
 class SumTree:
     def __init__(self, size, items):
@@ -81,7 +83,9 @@ class SumTree:
 
     # Over time our heap stops looking like a sorted array and we have to resort it
     def sort_tree(self):
-        self.tree.sort(key=lambda x: abs(x.TD_error), reverse=False)
+        items = [self.tree.pop() for i in range(len(self.tree))]
+        items.sort(key=lambda x: abs(x.TD_error), reverse=True)
+        self.tree.extend(items)
 
     # Proportional prioritization as per PER
     def get_minibatch(self, batch_size):
