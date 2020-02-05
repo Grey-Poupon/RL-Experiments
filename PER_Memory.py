@@ -8,7 +8,7 @@ from bisect import bisect_left
 
 class Item:
     def __init__(self, resource, TD_error= 200):
-        if TD_error == None:
+        if not TD_error:
             TD_error=200
         self.resource = resource
         self.TD_error = TD_error
@@ -29,6 +29,8 @@ class Item:
         return self.get_priority()/self.tree.get_sum_priority()
 
     def update_TD_error(self, TD_error):
+        if not TD_error:
+            TD_error=200
         self.TD_error = TD_error
 
     def calc_rank(self):
@@ -86,8 +88,12 @@ class SumTree:
     # Over time our heap stops looking like a sorted array and we have to resort it
     def sort_tree(self):
         items = [self.tree.pop() for i in range(len(self.tree))]
+
         items.sort(key=lambda x: abs(x.TD_error), reverse=True)
         self.tree.extend(items)
+        self.idx_shift = 0
+        print("Sorted")
+
 
     # Proportional prioritization as per PER
     def get_minibatch(self, batch_size):
@@ -273,8 +279,8 @@ class PEReplayMemory(object):
 
         # Sort Tree if needed
         self.sort_timer -= 1
-        if self.sort_timer == 0:
-            self.sort()
+        if self.sort_timer <= 0:
+            self.sort_tree()
             self.sort_timer = self.size
 
     def get_minibatch(self):
@@ -301,5 +307,5 @@ class PEReplayMemory(object):
     def save(self):
         return self.tree.save()
 
-    def sort(self):
+    def sort_tree(self):
         self.tree.sort_tree()
