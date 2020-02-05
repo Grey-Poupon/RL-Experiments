@@ -1,6 +1,6 @@
 import unittest
 from collections import deque
-
+import pickle
 from PER_Memory import PEReplayMemory, SumTree, Item
 import random
 import time
@@ -167,8 +167,16 @@ class PER_TEST(unittest.TestCase):
                  Item("A", 6), Item("A", 3), Item("A", 1), Item("A", 0), Item("A", 9), Item("A", 8), Item("A", 15)]
         sumTree = SumTree(1000000, items)
 
-        sumTree.sort_tree()
+        PEReplayMemory.tree = sumTree
+        PER = PEReplayMemory()
+        x = np.zeros((84, 84, 4))
+        PER.add_experience(0, x, 0, 0, False)
+        PER.tree.add_item(Item("None", None))
+        PER.tree.add_item(Item("Skipped"))
 
+
+
+        PER.sort_tree()
         curr = None
         for leaf in sumTree.get_leaves():
             if curr is None:
@@ -177,6 +185,48 @@ class PER_TEST(unittest.TestCase):
 
             self.assertGreaterEqual(curr, abs(leaf.TD_error))
             curr = abs(leaf.TD_error)
+
+    def test_save_load(self):
+        items = [Item("A", 6), Item("A", 3), Item("A", 999), Item("A", 0), Item("A", 9), Item("A", 8), Item("A", 5),
+                 Item("A", None), Item("A", 3), Item("A", 1), Item("A", 0), Item("A", 9), Item("A", 8), Item("A", 5),
+                 Item("A", 6), Item("A", 3), Item("A", 1), Item("A", 0), Item("A", 9), Item("A", 68), Item("A", 5),
+                 Item("A", 16), Item("A", 3), Item("A", 1), Item("A", 0), Item("A", 9), Item("A", 8), Item("A", 5),
+                 Item("A", 6), Item("A", 3), Item("A", 1), Item("A", 0), Item("A", 89), Item("A", 8), Item("A", 5),
+                 Item("A", 6), Item("A", 3), Item("A", 1), Item("A", 0), Item("A", 9), Item("A", 8), Item("A", 5),
+                 Item("A", 6), Item("A", 3), Item("A", 1), Item("A", 0), Item("A", 9), Item("A", 8), Item("A", 5),
+                 Item("A", 6), Item("A", 33), Item("A", 1), Item("A", 70), Item("A", 9), Item("A", 8), Item("A", 5),
+                 Item("A", 6), Item("A", 3), Item("A", 1), Item("A", 0), Item("A", 9), Item("A", 8), Item("A", 5),
+                 Item("A", 6), Item("A", 3), Item("A", 1), Item("A", 0), Item("A", -89), Item("A", 8), Item("A", 5),
+                 Item("A", 6), Item("A", 3), Item("A", 1), Item("A", 0), Item("A", 9), Item("A", 8), Item("A", 5),
+                 Item("A", 68), Item("A", 3), Item("A", 1), Item("A", 0), Item("A", 9), Item("A", 8), Item("A", 5),
+                 Item("A", 6), Item("A", 3), Item("A", 1), Item("A", 0), Item("A", 9), Item("A", 8), Item("A", 5),
+                 Item("A", 6), Item("A", 3), Item("A", 1), Item("A", 0), Item("A", 9), Item("A", 8), Item("A", 5),
+                 Item("A", 6), Item("A", 3), Item("A", 1), Item("A", 0), Item("A", 9), Item("A", 8), Item("A", 15),
+                 Item("A", 6), Item("A", 3), Item("A", 1), Item("A", 0), Item("A", 9), Item("A", 8), Item("A", 5),
+                 Item("A", 6), Item("A", 3), Item("A", 1), Item("A", 0), Item("A", 9), Item("A", 8), Item("A", 15)]
+
+        def save_data(frame_number, my_replay_memory, log_list, sess, test=False):
+            if test:
+                with open('memory.pkl', 'wb') as output:
+                    pickle.dump(my_replay_memory, output, pickle.HIGHEST_PROTOCOL)
+                return
+
+        def load_data(sess, test=False):
+            if test:
+                with open('memory.pkl', 'rb') as input:
+                    my_replay_memory = pickle.load(input)
+                return my_replay_memory
+
+        sumTree = SumTree(1000000, items)
+
+        MEM = PEReplayMemory()
+        MEM.tree = sumTree
+
+        save_data(0, MEM, [], None, test=True)
+        my_replay_memory = load_data(None, test=True)
+
+        self.assertEqual(my_replay_memory.tree.tree, MEM.tree.tree)
+
 
 if __name__ == '__main__':
     unittest.main()

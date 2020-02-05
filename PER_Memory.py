@@ -8,7 +8,7 @@ from bisect import bisect_left
 
 class Item:
     def __init__(self, resource, TD_error= 200):
-        if TD_error == None:
+        if not TD_error:
             TD_error=200
         self.resource = resource
         self.TD_error = TD_error
@@ -29,6 +29,8 @@ class Item:
         return self.get_priority()/self.tree.get_sum_priority()
 
     def update_TD_error(self, TD_error):
+        if not TD_error:
+            TD_error=200
         self.TD_error = TD_error
 
     def calc_rank(self):
@@ -86,8 +88,14 @@ class SumTree:
     # Over time our heap stops looking like a sorted array and we have to resort it
     def sort_tree(self):
         items = [self.tree.pop() for i in range(len(self.tree))]
+
         items.sort(key=lambda x: abs(x.TD_error), reverse=True)
         self.tree.extend(items)
+        self.idx_shift = 0
+        for i in range(self.tree):
+            self.tree[i].idx = i
+        print("Sorted")
+
 
     # Proportional prioritization as per PER
     def get_minibatch(self, batch_size):
@@ -239,19 +247,23 @@ class PEReplayMemory(object):
         self.sort_timer = self.size
 
     # Load from a saved file
-    def load(self, file):
-        state     = file['arr_0']
-        action    = file['arr_1']
-        reward    = file['arr_2']
-        new_state = file['arr_3']
-        terminal  = file['arr_4']
-        TD_error  = file['arr_5']
+    def load_tree(self, tree):
+        self.tree = SumTree(self.size, tree)
 
-        items = []
-        for i in range(len(TD_error)):
-            items.append(Item([state[i], action[i], reward[i], new_state[i], terminal[i]], TD_error[i]))
 
-        self.tree = SumTree(self.size, items)
+    # def load(self, file):
+    #     state     = file['arr_0']
+    #     action    = file['arr_1']
+    #     reward    = file['arr_2']
+    #     new_state = file['arr_3']
+    #     terminal  = file['arr_4']
+    #     TD_error  = file['arr_5']
+    #
+    #     items = []
+    #     for i in range(len(TD_error)):
+    #         items.append(Item([state[i], action[i], reward[i], new_state[i], terminal[i]], TD_error[i]))
+    #
+    #     self.tree = SumTree(self.size, items)
 
     def add_experience(self, action, state, new_state, reward, terminal):
         """
@@ -272,9 +284,9 @@ class PEReplayMemory(object):
         self.tree.add_item(memory)
 
         # Sort Tree if needed
-        self.sort_timer <= 1
-        if self.sort_timer == 0:
-            self.sort()
+        self.sort_timer -= 1
+        if self.sort_timer <= 0:
+            self.sort_tree()
             self.sort_timer = self.size
 
     def get_minibatch(self):
