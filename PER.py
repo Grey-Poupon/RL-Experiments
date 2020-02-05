@@ -1,7 +1,7 @@
 import pickle
 import random
-import gym
-import tensorflow as tf
+#import gym
+#import tensorflow as tf
 import numpy as np
 from PER_Memory import Item, SumTree, PEReplayMemory
 import time
@@ -393,13 +393,13 @@ MAIN_DQN_VARS = tf.trainable_variables(scope='mainDQN')
 TARGET_DQN_VARS = tf.trainable_variables(scope='targetDQN')
 
 
-def save_data(frame_number, my_replay_memory, log_list, sess):
+def save_data(frame_number, my_replay_memory, log_list, sess, test=False):
     saver.save(sess, "/home/Kapok/Saves/PER/Breakout/Saves/" + str(frame_number))
     with open('memory.pkl', 'wb') as output:
         pickle.dump(my_replay_memory, output, pickle.HIGHEST_PROTOCOL)
     np.save("/home/Kapok/Saves/PER/Breakout/Logs/Logs_" + str(frame_number), log_list)
 
-def load_data(sess):
+def load_data(sess, test=False):
     saver.restore(sess, "/home/Kapok/BaseLines_Saves/Breakout/Saves/400288")
     with open('memory.pkl', 'rb') as input:
         my_replay_memory = pickle.load(input)

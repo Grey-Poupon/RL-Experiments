@@ -272,7 +272,7 @@ class PEReplayMemory(object):
         self.tree.add_item(memory)
 
         # Sort Tree if needed
-        self.sort_timer -= 1
+        self.sort_timer <= 1
         if self.sort_timer == 0:
             self.sort()
             self.sort_timer = self.size
@@ -301,5 +301,5 @@ class PEReplayMemory(object):
     def save(self):
         return self.tree.save()
 
-    def sort(self):
+    def sort_tree(self):
         self.tree.sort_tree()
