@@ -215,7 +215,7 @@ def learn(session, PER_memory, main_dqn, target_dqn, batch_size, gamma, beta=1):
     """
 
     # Draw a minibatch from the replay memory
-    states, actions, rewards, new_states, terminal_flags, probabilities = PER_memory.get_minibatch()
+    states, actions, rewards, new_states, terminal_flags, probabilities, idxs = PER_memory.get_minibatch()
 
     # The main network estimates which action is best (in the next
     # state s', new_states is passed!)
@@ -244,6 +244,8 @@ def learn(session, PER_memory, main_dqn, target_dqn, batch_size, gamma, beta=1):
                                     feed_dict={main_dqn.input: states,
                                                main_dqn.target_q: target_q,
                                                main_dqn.action: actions})
+    for i, error in enumerate(TD_error):
+        PER_memory.tree.tree[idxs[i]].TD_error = error
 
     return loss, TD_error
 
@@ -421,12 +423,12 @@ def train():
 
 
     with tf.Session() as sess:
-        #sess.run(init)
-        sess, tree = load_data(sess)
-        my_replay_memory.load_tree(tree)
-        frame_number = 200036
+        sess.run(init)
+        #sess, tree = load_data(sess)
+        #my_replay_memory.load_tree(tree)
+        frame_number = 0
         my_replay_memory.sort_timer = 1
-        run = 1115
+        run = 0
         rewards = []
         log_list = []
         is_eval =False

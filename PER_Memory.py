@@ -243,7 +243,7 @@ class PEReplayMemory(object):
         self.agent_history_length = agent_history_length
         self.batch_size = batch_size
         self.tree = SumTree(self.size, [])
-        self.sort_timer = self.size
+        self.sort_timer = self.size/2
 
     # Load from a saved file
     def load_tree(self, tree):
@@ -286,7 +286,7 @@ class PEReplayMemory(object):
         self.sort_timer -= 1
         if self.sort_timer <= 0:
             self.sort_tree()
-            self.sort_timer = self.size
+            self.sort_timer = self.size / 2
 
     def get_minibatch(self):
         """
@@ -297,7 +297,7 @@ class PEReplayMemory(object):
 
         transitions = self.tree.get_minibatch2(self.batch_size)
 
-        states, actions, rewards, new_states, terminal_flags, probabilties = [], [], [], [], [], []
+        states, actions, rewards, new_states, terminal_flags, probabilties, idxs = [], [], [], [], [], [], []
 
         for t in transitions:
             states.append(t.resource[0])
@@ -306,8 +306,9 @@ class PEReplayMemory(object):
             new_states.append(np.concatenate([t.resource[0][..., 1:], t.resource[3]], axis=-1))
             terminal_flags.append(t.resource[4])
             probabilties.append(t.get_sample_prob())
+            idxs.append(t.get_idx())
 
-        return np.array(states), np.array(actions), np.array(rewards), np.array(new_states), np.array(terminal_flags), np.array(probabilties)
+        return np.array(states), np.array(actions), np.array(rewards), np.array(new_states), np.array(terminal_flags), np.array(probabilties), idxs
 
     def save(self):
         return self.tree.save()
