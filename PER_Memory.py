@@ -92,7 +92,7 @@ class SumTree:
         items.sort(key=lambda x: abs(x.TD_error), reverse=True)
         self.tree.extend(items)
         self.idx_shift = 0
-        for i in range(self.tree):
+        for i in range(self.get_num_leaves()):
             self.tree[i].idx = i
         print("Sorted")
 
@@ -248,7 +248,7 @@ class PEReplayMemory(object):
 
     # Load from a saved file
     def load_tree(self, tree):
-        self.tree = SumTree(self.size, tree)
+        self.tree = SumTree(self.size, list(tree))
 
 
     # def load(self, file):
