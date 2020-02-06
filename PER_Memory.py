@@ -297,7 +297,7 @@ class PEReplayMemory(object):
 
         transitions = self.tree.get_minibatch2(self.batch_size)
 
-        states, actions, rewards, new_states, terminal_flags, probabilties, idxs = [], [], [], [], [], [], []
+        states, actions, rewards, new_states, terminal_flags, probabilties, items = [], [], [], [], [], [], []
 
         for t in transitions:
             states.append(t.resource[0])
@@ -306,9 +306,9 @@ class PEReplayMemory(object):
             new_states.append(np.concatenate([t.resource[0][..., 1:], t.resource[3]], axis=-1))
             terminal_flags.append(t.resource[4])
             probabilties.append(t.get_sample_prob())
-            idxs.append(t.get_idx())
+            items.append(t)
 
-        return np.array(states), np.array(actions), np.array(rewards), np.array(new_states), np.array(terminal_flags), np.array(probabilties), idxs
+        return np.array(states), np.array(actions), np.array(rewards), np.array(new_states), np.array(terminal_flags), np.array(probabilties), items
 
     def save(self):
         return self.tree.save()

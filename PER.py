@@ -215,7 +215,7 @@ def learn(session, PER_memory, main_dqn, target_dqn, batch_size, gamma, beta=1):
     """
 
     # Draw a minibatch from the replay memory
-    states, actions, rewards, new_states, terminal_flags, probabilities, idxs = PER_memory.get_minibatch()
+    states, actions, rewards, new_states, terminal_flags, probabilities, items = PER_memory.get_minibatch()
 
     # The main network estimates which action is best (in the next
     # state s', new_states is passed!)
@@ -245,7 +245,7 @@ def learn(session, PER_memory, main_dqn, target_dqn, batch_size, gamma, beta=1):
                                                main_dqn.target_q: target_q,
                                                main_dqn.action: actions})
     for i, error in enumerate(TD_error):
-        PER_memory.tree.tree[idxs[i]].TD_error = error
+        items[i].TD_error = error
 
     return loss, TD_error
 
