@@ -67,20 +67,19 @@ class SumTree:
 
     def __eq__(self, other):
 
-        return type(self) == type(other) and (self.tree == other.tree) and  self.layers == other.layers and \
+        return type(self) == type(other) and (self.tree == other.tree) and self.layers == other.layers and \
                self.empty_leaves == other.empty_leaves and self.first_empty_leaf == other.first_empty_leaf and  self.size == other.size
 
     def get_max_weight(self, beta):
-        # w= (N·P(j))−β
+        # w= (N·P(j))^−β
         #  P(j) = Prior/SumPrior
         #  Prior = 1/rank
         #  Max Rank = N
         #  Therefore Max P(j) = 1/N·SumPrior
         #  N·MaxP(j)  = 1/SumPrior
-        # (N·P(j))−β  = 1/(N·P(j))β
-        #             = 1/1/(SumPrior)β
-        #             = (SumPrior)β
-        # MaxWeight = (SumPrior)β
+        # (N·P(j))−β  = 1/(N·P(j))^β
+        #             = 1/(1/SumPrior)^β
+        #             = SumPrior^β
         if beta == 1:
             return self.get_sum_priority()
         return math.pow(self.get_sum_priority(), beta)

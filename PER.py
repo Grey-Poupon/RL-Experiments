@@ -123,11 +123,11 @@ class DQN(object):
         # weight = (N·P(j))−β / Max Weight
         self.N = tf.placeholder(dtype=tf.float32)
         self.P = tf.placeholder(dtype=tf.float32)
-        # M = 1
+        self.M = tf.placeholder(dtype=tf.float32)
         self.B = tf.placeholder(dtype=tf.float32)
 
         # Calculcate weight as per PER
-        self.importance_weight = tf.pow((self.N * self.P), -self.B)
+        self.importance_weight = tf.divide(tf.pow((self.N * self.P), -self.B), self.M)
 
 
 class ExplorationExploitationScheduler(object):
@@ -198,7 +198,7 @@ class ExplorationExploitationScheduler(object):
         return session.run(self.DQN.best_action, feed_dict={self.DQN.input: [state]})[0]
 
 
-def learn(session, PER_memory, main_dqn, target_dqn, batch_size, gamma):
+def learn(session, PER_memory, main_dqn, target_dqn, batch_size, gamma, beta=1):
     """
     Args:
         session: A tensorflow sesson object
@@ -215,7 +215,7 @@ def learn(session, PER_memory, main_dqn, target_dqn, batch_size, gamma):
     """
 
     # Draw a minibatch from the replay memory
-    states, actions, rewards, new_states, terminal_flags, probabilties = PER_memory.get_minibatch()
+    states, actions, rewards, new_states, terminal_flags, probabilities = PER_memory.get_minibatch()
 
     # The main network estimates which action is best (in the next
     # state s', new_states is passed!)
@@ -226,25 +226,24 @@ def learn(session, PER_memory, main_dqn, target_dqn, batch_size, gamma):
     # for every transition in the minibatch
     q_vals = session.run(target_dqn.q_values, feed_dict={target_dqn.input:new_states})
 
-
     double_q = q_vals[range(batch_size), arg_q_max]
     # We use an importance sampling weight to reduce the bias introduces using PER
 
-    # Normalise using max Weight however max=1 as B=1 therofore is not needed
-
-    importace_sampling_weight = session.run(main_dqn.importance_weight, feed_dict={
+    importance_sampling_weight = session.run(main_dqn.importance_weight, feed_dict={
                                                         main_dqn.N: PER_memory.tree.get_num_leaves(),
-                                                        main_dqn.P: probabilties,
-                                                        main_dqn.B: PER_memory.tree.get_max_weight(1)})
+                                                        main_dqn.P: probabilities,
+                                                        main_dqn.M: PER_memory.tree.get_max_weight(beta),
+                                                        main_dqn.B: beta})
+    print(importance_sampling_weight)
 
     # Bellman equation. Multiplication with (1-terminal_flags) makes sure that
     # if the game is over, targetQ=rewards
-    target_q = rewards + (gamma*double_q * (1-terminal_flags)) * importace_sampling_weight
+    target_q = (rewards + gamma*double_q * (1-terminal_flags)) * importance_sampling_weight
     # Gradient descend step to update the parameters of the main network
     loss, _, TD_error = session.run([main_dqn.loss, main_dqn.update, main_dqn.TD_Error],
-                          feed_dict={main_dqn.input:states,
-                                     main_dqn.target_q:target_q,
-                                     main_dqn.action:actions})
+                                    feed_dict={main_dqn.input: states,
+                                               main_dqn.target_q: target_q,
+                                               main_dqn.action: actions})
 
     return loss, TD_error
 
@@ -446,8 +445,7 @@ def train():
 
                     state = atari.state
                     action = explore_exploit_sched.get_action(sess, frame_number, state, evaluation=is_eval)
-                    #log_list.append(action)
-                    #print(action)
+
                     processed_new_frame, reward, terminal, terminal_life_lost, _ = atari.step(sess, action)
                     frame_number += 1
                     epoch_frame += 1
