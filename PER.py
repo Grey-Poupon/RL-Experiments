@@ -7,8 +7,8 @@ from PER_Memory import Item, SumTree, PEReplayMemory
 import time
 TRAIN = True
 
-ENV_NAME = 'BreakoutDeterministic-v4'
-#ENV_NAME = 'PongDeterministic-v4'
+#ENV_NAME = 'BreakoutDeterministic-v4'
+ENV_NAME = 'PongDeterministic-v4'
 # You can increase the learning rate to 0.00025 in Pong for quicker results
 
 class FrameProcessor(object):
@@ -234,7 +234,7 @@ def learn(session, PER_memory, main_dqn, target_dqn, batch_size, gamma, beta=1):
                                                         main_dqn.P: probabilities,
                                                         main_dqn.M: PER_memory.tree.get_max_weight(beta),
                                                         main_dqn.B: beta})
-    print(importance_sampling_weight)
+    
 
     # Bellman equation. Multiplication with (1-terminal_flags) makes sure that
     # if the game is over, targetQ=rewards
@@ -346,8 +346,8 @@ def clip_reward(reward):
 tf.reset_default_graph()
 
 # Control parameters
-MAX_EPISODE_LENGTH = 18000       # Equivalent of 5 minutes of gameplay at 60 frames per second
-EVAL_FREQUENCY = 100000          # Number of frames the agent sees between evaluations
+MAX_EPISODE_LENGTH = 1000       # Equivalent of 5 minutes of gameplay at 60 frames per second
+EVAL_FREQUENCY = 250000          # Number of frames the agent sees between evaluations
 EVAL_STEPS = 10000               # Number of frames for one evaluation
 NETW_UPDATE_FREQ = 10000         # Number of chosen actions between updating the target network.
                                  # According to Mnih et al. 2015 this is measured in the number of
@@ -357,8 +357,8 @@ NETW_UPDATE_FREQ = 10000         # Number of chosen actions between updating the
 DISCOUNT_FACTOR = 0.99           # gamma in the Bellman equation
 REPLAY_MEMORY_START_SIZE = 50000 # Number of completely random actions,
                                  # before the agent starts learning
-MAX_FRAMES = 30000000            # Total number of frames the agent sees
-MEMORY_SIZE = 250000            # Number of transitions stored in the replay memory
+MAX_FRAMES = 10000000            # Total number of frames the agent sees
+MEMORY_SIZE = 400000            # Number of transitions stored in the replay memory
 NO_OP_STEPS = 10                 # Number of 'NOOP' or 'FIRE' actions at the beginning of an
                                  # evaluation episode
 UPDATE_FREQ = 4                  # Every four actions a gradient descend step is performed
@@ -375,7 +375,7 @@ BS = 32                          # Batch size
 PATH = "output/"                 # Gifs and checkpoints will be saved here
 SUMMARIES = "summaries"          # logdir for tensorboard
 RUNID = 'run_1'
-
+SAVE_SWITCH = False
 
 atari = Atari(ENV_NAME, NO_OP_STEPS)
 
@@ -394,18 +394,19 @@ MAIN_DQN_VARS = tf.trainable_variables(scope='mainDQN')
 TARGET_DQN_VARS = tf.trainable_variables(scope='targetDQN')
 
 
-def save_data(frame_number, my_replay_memory, log_list, sess, test=False):
+def save_data(frame_number, my_replay_memory, log_list, sess,SAVE_SWITCH, test=False):
 
-    saver.save(sess, "/home/Kapok/Saves/PER/Breakout/Saves/" + str(frame_number))
+    saver.save(sess, "/home/Kapok/Saves/PER/Pong/Saves/" + str(frame_number))
 #    with open('memory.pkl', 'wb') as output:
 #        pickle.dump(my_replay_memory, output, pickle.HIGHEST_PROTOCOL)
-    with open('tree.pkl', 'wb') as output:
+    fname = "tree_A.pkl" if SAVE_SWITCH else "tree_B.pkl"
+    SAVE_SWITCH = not SAVE_SWITCH
+    with open(fname, 'wb') as output:
         pickle.dump(my_replay_memory.tree.tree, output, pickle.HIGHEST_PROTOCOL)
-    np.save("/home/Kapok/Saves/PER/Breakout/Logs/Logs_" + str(frame_number), log_list)
+    np.save("/home/Kapok/Saves/PER/Pong/Logs/Logs_" + str(frame_number), log_list)
 
 def load_data(sess, test=False):
-
-    saver.restore(sess, "/home/Kapok/Saves/PER/Breakout/Saves/200036")
+    saver.restore(sess, "/home/Kapok/Saves/PER/Breakout/Saves/1000420")
     with open('tree.pkl', 'rb') as input:
         tree = pickle.load(input)
         print("Loaded Memory")
@@ -424,11 +425,11 @@ def train():
 
     with tf.Session() as sess:
         sess.run(init)
-        #sess, tree = load_data(sess)
-        #my_replay_memory.load_tree(tree)
+       # sess, tree = load_data(sess)
+       # my_replay_memory.load_tree(tree)
         frame_number = 0
-        my_replay_memory.sort_timer = 1
         run = 0
+        epoch_run = 0
         rewards = []
         log_list = []
         is_eval =False
@@ -436,6 +437,7 @@ def train():
         while frame_number < MAX_FRAMES:
 
             epoch_frame = 0
+            epoch_run = 0
             is_eval = True
             while epoch_frame < EVAL_FREQUENCY:
 
@@ -443,19 +445,18 @@ def train():
                 terminal_life_lost = atari.reset(sess)
                 episode_reward_sum = 0
                 run += 1
-                for _ in range(MAX_EPISODE_LENGTH):
+                epoch_run += 1
+                for f in range(MAX_EPISODE_LENGTH):
 
                     state = atari.state
                     action = explore_exploit_sched.get_action(sess, frame_number, state, evaluation=is_eval)
-
+                    if f > 150 and epoch_run == 1:
+                         action = 1
+                         print(action)
                     processed_new_frame, reward, terminal, terminal_life_lost, _ = atari.step(sess, action)
                     frame_number += 1
                     epoch_frame += 1
-                    episode_reward_sum += reward
-
-                    if frame_number % 10 == 0 and frame_number < 500:
-                         print(log_list)
-                         log_list = []
+                    episode_reward_sum += reward                                           
 
                     # Clip the reward
                     clipped_reward = clip_reward(reward)
@@ -485,11 +486,11 @@ def train():
 
 
             # Save the network parameters, Memory & Logs
-            save_data(frame_number, my_replay_memory, log_list, sess)
-            log_list = []
+            save_data(frame_number, my_replay_memory, log_list, sess, SAVE_SWITCH)
             print("saved")
 
 
 
 if TRAIN:
     train()
+
