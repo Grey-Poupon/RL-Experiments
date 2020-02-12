@@ -143,6 +143,27 @@ class SumTree:
 
         return batch
 
+    def get_minibatch3(self, batch_size):
+        leaves = self.get_leaves()
+        num_leaves = self.get_num_leaves()
+        split = num_leaves / batch_size
+
+
+        batch = []
+
+        for i in range(1, batch_size+1):
+
+            l_idx = (i-1) * split
+            r_idx = i * split
+
+            l_idx = math.floor(l_idx)
+            r_idx = math.ceil(r_idx)
+
+            random_idx = random.randrange(l_idx, r_idx+1)
+            batch.append(leaves[random_idx])
+
+        return batch
+
     def take_closest(self, leaves, val):
         pos = bisect_left(leaves, val)
         if pos == 0:
@@ -295,7 +316,7 @@ class PEReplayMemory(object):
         if self.tree.get_num_leaves() < self.batch_size:
             raise ValueError('Not enough memories to get a minibatch')
 
-        transitions = self.tree.get_minibatch2(self.batch_size)
+        transitions = self.tree.get_minibatch3(self.batch_size)
 
         states, actions, rewards, new_states, terminal_flags, probabilties, items = [], [], [], [], [], [], []
 
