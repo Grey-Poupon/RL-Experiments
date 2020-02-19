@@ -2,6 +2,7 @@ import pickle
 import random
 import gym
 import tensorflow as tf
+import matplotlib.pyplot as plt
 import numpy as np
 from PER_Memory import Item, SumTree, PEReplayMemory
 import time
@@ -411,6 +412,29 @@ def load_data(sess, test=False):
         tree = pickle.load(input)
         print("Loaded Memory")
         return sess, tree
+
+def load_logs():
+    fnumbers = []
+    TD_ERROR = []
+    LOSS = []
+    for fnumber in fnumbers :
+        logs = np.load("/home/Kapok/Saves/PER/Pong/Logs/Logs_"+fnumber)
+        LOSS.extend(logs[..., 0])
+        TD_ERROR.extend(logs[..., 1])
+    return LOSS,TD_ERROR
+
+def show_logs():
+    loss, td = load_logs()
+
+    plt.plot(loss, 4 * list(range(len(loss))))
+    plt.ylabel('Loss')
+    plt.xlabel("Frames")
+    plt.show()
+
+    plt.plot(td, 4 * list(range(len(td))))
+    plt.ylabel('TD Error')
+    plt.xlabel("Frames")
+    plt.show()
 
 def train():
     """Contains the training and evaluation loops"""

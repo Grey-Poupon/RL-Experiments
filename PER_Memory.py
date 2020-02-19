@@ -159,7 +159,7 @@ class SumTree:
             l_idx = math.floor(l_idx)
             r_idx = math.ceil(r_idx)
 
-            random_idx = random.randrange(l_idx, r_idx+1)
+            random_idx = random.randrange(l_idx, r_idx)
             batch.append(leaves[random_idx])
 
         return batch
