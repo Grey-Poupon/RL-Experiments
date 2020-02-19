@@ -6,6 +6,8 @@ import matplotlib.pyplot as plt
 import numpy as np
 from PER_Memory import Item, SumTree, PEReplayMemory
 import time
+import imageio
+
 TRAIN = True
 
 #ENV_NAME = 'BreakoutDeterministic-v4'
@@ -377,6 +379,7 @@ PATH = "output/"                 # Gifs and checkpoints will be saved here
 SUMMARIES = "summaries"          # logdir for tensorboard
 RUNID = 'run_1'
 SAVE_SWITCH = False
+MAKE_VIDEO = True
 
 atari = Atari(ENV_NAME, NO_OP_STEPS)
 
@@ -413,6 +416,11 @@ def load_data(sess, test=False):
         print("Loaded Memory")
         return sess, tree
 
+def save_video(frames, fname):
+    with imageio.get_writer('/home/Kapok/Saves/PER/Breakout/Gifs/'+fname+'.gif', mode='I') as writer:
+         for image in frames:
+            writer.append_data(image)
+
 def load_logs():
     fnumbers = []
     TD_ERROR = []
@@ -446,6 +454,8 @@ def train():
         replay_memory_start_size=REPLAY_MEMORY_START_SIZE,
         max_frames=MAX_FRAMES)
 
+    video=[]
+
 
     with tf.Session() as sess:
         sess.run(init)
@@ -473,6 +483,15 @@ def train():
                 for f in range(MAX_EPISODE_LENGTH):
 
                     state = atari.state
+
+
+                    if MAKE_VIDEO:
+                        video.append(state)
+                        if len(video) > 120:
+                            save_video(frames=video, fname=frame_number)
+                            video = []
+
+
                     action = explore_exploit_sched.get_action(sess, frame_number, state, evaluation=is_eval)
                     if f > 150 and epoch_run == 1:
                          action = 1
