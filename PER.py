@@ -2,11 +2,10 @@ import pickle
 import random
 import gym
 import tensorflow as tf
+import matplotlib.pyplot as plt
 import numpy as np
 from PER_Memory import Item, SumTree, PEReplayMemory
 import time
-import matplotlib.pyplot as plt
-
 TRAIN = True
 
 #ENV_NAME = 'BreakoutDeterministic-v4'
@@ -237,7 +236,7 @@ def learn(session, PER_memory, main_dqn, target_dqn, batch_size, gamma, beta=1):
                                                         main_dqn.P: probabilities,
                                                         main_dqn.M: PER_memory.tree.get_max_weight(beta),
                                                         main_dqn.B: beta})
-    #print(importance_sampling_weight)
+    
 
     # Bellman equation. Multiplication with (1-terminal_flags) makes sure that
     # if the game is over, targetQ=rewards
@@ -415,7 +414,28 @@ def load_data(sess, test=False):
         print("Loaded Memory")
         return sess, tree
 
+def load_logs():
+    fnumbers = []
+    TD_ERROR = []
+    LOSS = []
+    for fnumber in fnumbers :
+        logs = np.load("/home/Kapok/Saves/PER/Pong/Logs/Logs_"+fnumber)
+        LOSS.extend(logs[..., 0])
+        TD_ERROR.extend(logs[..., 1])
+    return LOSS,TD_ERROR
 
+def show_logs():
+    loss, td = load_logs()
+
+    plt.plot(loss, 4 * list(range(len(loss))))
+    plt.ylabel('Loss')
+    plt.xlabel("Frames")
+    plt.show()
+
+    plt.plot(td, 4 * list(range(len(td))))
+    plt.ylabel('TD Error')
+    plt.xlabel("Frames")
+    plt.show()
 
 def train():
     """Contains the training and evaluation loops"""
