@@ -5,10 +5,13 @@ import tensorflow as tf
 import numpy as np
 from PER_Memory import Item, SumTree, PEReplayMemory
 import time
+import matplotlib.pyplot as plt
+
 TRAIN = True
 
 #ENV_NAME = 'BreakoutDeterministic-v4'
-ENV_NAME = 'PongDeterministic-v4'
+ENV_NAME = 'Qbert-v0'
+#ENV_NAME = 'PongDeterministic-v4'
 # You can increase the learning rate to 0.00025 in Pong for quicker results
 
 class FrameProcessor(object):
@@ -234,7 +237,7 @@ def learn(session, PER_memory, main_dqn, target_dqn, batch_size, gamma, beta=1):
                                                         main_dqn.P: probabilities,
                                                         main_dqn.M: PER_memory.tree.get_max_weight(beta),
                                                         main_dqn.B: beta})
-    
+    #print(importance_sampling_weight)
 
     # Bellman equation. Multiplication with (1-terminal_flags) makes sure that
     # if the game is over, targetQ=rewards
@@ -396,14 +399,14 @@ TARGET_DQN_VARS = tf.trainable_variables(scope='targetDQN')
 
 def save_data(frame_number, my_replay_memory, log_list, sess,SAVE_SWITCH, test=False):
 
-    saver.save(sess, "/home/Kapok/Saves/PER/Pong/Saves/" + str(frame_number))
+    saver.save(sess, "/home/Kapok/Saves/PER/Qbert/Saves/" + str(frame_number))
 #    with open('memory.pkl', 'wb') as output:
 #        pickle.dump(my_replay_memory, output, pickle.HIGHEST_PROTOCOL)
     fname = "tree_A.pkl" if SAVE_SWITCH else "tree_B.pkl"
     SAVE_SWITCH = not SAVE_SWITCH
     with open(fname, 'wb') as output:
         pickle.dump(my_replay_memory.tree.tree, output, pickle.HIGHEST_PROTOCOL)
-    np.save("/home/Kapok/Saves/PER/Pong/Logs/Logs_" + str(frame_number), log_list)
+    np.save("/home/Kapok/Saves/PER/Qbert/Logs/Logs_" + str(frame_number), log_list)
 
 def load_data(sess, test=False):
     saver.restore(sess, "/home/Kapok/Saves/PER/Breakout/Saves/1000420")
@@ -411,6 +414,8 @@ def load_data(sess, test=False):
         tree = pickle.load(input)
         print("Loaded Memory")
         return sess, tree
+
+
 
 def train():
     """Contains the training and evaluation loops"""
@@ -454,6 +459,7 @@ def train():
                          action = 1
                          print(action)
                     processed_new_frame, reward, terminal, terminal_life_lost, _ = atari.step(sess, action)
+
                     frame_number += 1
                     epoch_frame += 1
                     episode_reward_sum += reward                                           

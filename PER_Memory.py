@@ -159,7 +159,7 @@ class SumTree:
             l_idx = math.floor(l_idx)
             r_idx = math.ceil(r_idx)
 
-            random_idx = random.randrange(l_idx, r_idx+1)
+            random_idx = random.randrange(l_idx, r_idx)
             batch.append(leaves[random_idx])
 
         return batch
@@ -270,21 +270,6 @@ class PEReplayMemory(object):
     def load_tree(self, tree):
         self.tree = SumTree(self.size, list(tree))
 
-
-    # def load(self, file):
-    #     state     = file['arr_0']
-    #     action    = file['arr_1']
-    #     reward    = file['arr_2']
-    #     new_state = file['arr_3']
-    #     terminal  = file['arr_4']
-    #     TD_error  = file['arr_5']
-    #
-    #     items = []
-    #     for i in range(len(TD_error)):
-    #         items.append(Item([state[i], action[i], reward[i], new_state[i], terminal[i]], TD_error[i]))
-    #
-    #     self.tree = SumTree(self.size, items)
-
     def add_experience(self, action, state, new_state, reward, terminal):
         """
         Args:
@@ -316,7 +301,7 @@ class PEReplayMemory(object):
         if self.tree.get_num_leaves() < self.batch_size:
             raise ValueError('Not enough memories to get a minibatch')
 
-        transitions = self.tree.get_minibatch3(self.batch_size)
+        transitions = self.tree.get_minibatch2(self.batch_size)
 
         states, actions, rewards, new_states, terminal_flags, probabilties, items = [], [], [], [], [], [], []
 
