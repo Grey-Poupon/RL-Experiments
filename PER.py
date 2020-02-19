@@ -1,3 +1,4 @@
+import math
 import pickle
 import random
 import gym
@@ -6,11 +7,12 @@ import matplotlib.pyplot as plt
 import numpy as np
 from PER_Memory import Item, SumTree, PEReplayMemory
 import time
+import os
 TRAIN = True
 
 #ENV_NAME = 'BreakoutDeterministic-v4'
-ENV_NAME = 'Qbert-v0'
-#ENV_NAME = 'PongDeterministic-v4'
+#ENV_NAME = 'Qbert-v0'
+ENV_NAME = 'PongDeterministic-v4'
 # You can increase the learning rate to 0.00025 in Pong for quicker results
 
 class FrameProcessor(object):
@@ -359,7 +361,7 @@ NETW_UPDATE_FREQ = 10000         # Number of chosen actions between updating the
 DISCOUNT_FACTOR = 0.99           # gamma in the Bellman equation
 REPLAY_MEMORY_START_SIZE = 50000 # Number of completely random actions,
                                  # before the agent starts learning
-MAX_FRAMES = 10000000            # Total number of frames the agent sees
+MAX_FRAMES = 1000000            # Total number of frames the agent sees
 MEMORY_SIZE = 400000            # Number of transitions stored in the replay memory
 NO_OP_STEPS = 10                 # Number of 'NOOP' or 'FIRE' actions at the beginning of an
                                  # evaluation episode
@@ -398,14 +400,17 @@ TARGET_DQN_VARS = tf.trainable_variables(scope='targetDQN')
 
 def save_data(frame_number, my_replay_memory, log_list, sess,SAVE_SWITCH, test=False):
 
-    saver.save(sess, "/home/Kapok/Saves/PER/Qbert/Saves/" + str(frame_number))
+    Extension = "PER"
+    Game = "Pong"
+
+    saver.save(sess, "/home/Kapok/Saves/"+Extension+"/"+Game+"/Saves/" + str(frame_number))
 #    with open('memory.pkl', 'wb') as output:
 #        pickle.dump(my_replay_memory, output, pickle.HIGHEST_PROTOCOL)
     fname = "tree_A.pkl" if SAVE_SWITCH else "tree_B.pkl"
     SAVE_SWITCH = not SAVE_SWITCH
     with open(fname, 'wb') as output:
         pickle.dump(my_replay_memory.tree.tree, output, pickle.HIGHEST_PROTOCOL)
-    np.save("/home/Kapok/Saves/PER/Qbert/Logs/Logs_" + str(frame_number), log_list)
+    np.save("/home/Kapok/Saves/"+Extension+"/"+Game+"/Logs/Logs_" + str(frame_number), log_list)
 
 def load_data(sess, test=False):
     saver.restore(sess, "/home/Kapok/Saves/PER/Breakout/Saves/1000420")
@@ -415,24 +420,37 @@ def load_data(sess, test=False):
         return sess, tree
 
 def load_logs():
-    fnumbers = []
     TD_ERROR = []
     LOSS = []
-    for fnumber in fnumbers :
-        logs = np.load("/home/Kapok/Saves/PER/Pong/Logs/Logs_"+fnumber)
+    i=0
+    for file in sorted(os.listdir("/home/Kapok/Saves/PER/Pong/Logs")):
+        print(file)
+        if i < 2:
+            i+=1
+            continue
+        logs = np.load("/home/Kapok/Saves/PER/Pong/Logs/"+file, allow_pickle=True)
+        print(logs.shape)
         LOSS.extend(logs[..., 0])
         TD_ERROR.extend(logs[..., 1])
     return LOSS,TD_ERROR
 
 def show_logs():
     loss, td = load_logs()
+    frames = 4 * np.array(list(range(len(loss))))
 
-    plt.plot(loss, 4 * list(range(len(loss))))
-    plt.ylabel('Loss')
-    plt.xlabel("Frames")
-    plt.show()
+    splits = 4
+    step = math.floor(len(loss) / splits)
 
-    plt.plot(td, 4 * list(range(len(td))))
+    # for i in range(splits):
+    #
+    #     plt.plot(frames[i*step:(i+1)*step], loss[i*step:(i+1)*step],'bo')
+    #     plt.ylabel('Loss')
+    #     plt.xlabel("Frames")
+    #     plt.show()
+
+    td = np.average(np.array(td), axis=-1)
+    print(td.shape)
+    plt.plot(frames, td, 'bo')#, 4 * np.array(list(range(len(td)))))
     plt.ylabel('TD Error')
     plt.xlabel("Frames")
     plt.show()
@@ -513,10 +531,12 @@ def train():
 
             # Save the network parameters, Memory & Logs
             save_data(frame_number, my_replay_memory, log_list, sess, SAVE_SWITCH)
+            log_list=[]
             print("saved")
 
 
 
 if TRAIN:
     train()
+#    show_logs()
 
