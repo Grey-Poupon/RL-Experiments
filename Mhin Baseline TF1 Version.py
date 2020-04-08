@@ -1,4 +1,4 @@
-
+import imageio
 import random
 import gym
 import tensorflow as tf
@@ -7,7 +7,7 @@ import numpy as np
 
 TRAIN = True
 
-ENV_NAME = 'BreakoutDeterministic-v4'
+ENV_NAME = 'Breakout-v0'
 #ENV_NAME = 'PongDeterministic-v4'
 # You can increase the learning rate to 0.00025 in Pong for quicker results
 
@@ -95,8 +95,8 @@ class DQN(object):
             inputs=self.valuestream, units=1,
             kernel_initializer=tf.variance_scaling_initializer(scale=2), name='value')
 
-        # Combining value and advantage into Q-values as described above
-        self.q_values = self.value + tf.subtract(self.advantage, tf.reduce_mean(self.advantage, axis=1, keepdims=True))
+        # Combining value and advantage into Q-values as described above_
+        self.q_values = self.value + tf.subtract(self.advantage, tf.reduce_mean(self.advantage, axis=1, keep_dims=True))
         self.best_action = tf.argmax(self.q_values, 1)
 
         # The next lines perform the parameter update. This will be explained in detail later.
@@ -483,7 +483,8 @@ saver = tf.train.Saver()
 
 MAIN_DQN_VARS = tf.trainable_variables(scope='mainDQN')
 TARGET_DQN_VARS = tf.trainable_variables(scope='targetDQN')
-
+def save_vid(fname, images):
+    imageio.mimsave("/home/kapok/Gifs/"+fname+".gif", images)
 
 def train():
     """Contains the training and evaluation loops"""
@@ -503,9 +504,11 @@ def train():
         frame_number = 0
         run = 0
         rewards = []
-        log_list = []
+        log_list = [[],[]]
         is_eval =False
-
+        gif=[]
+        terminal = False
+        deadFrames = 0
         while frame_number < MAX_FRAMES:
 
             epoch_frame = 0
@@ -517,12 +520,23 @@ def train():
                 run += 1
                 for _ in range(MAX_EPISODE_LENGTH):
 
+                    while run ==1 and not terminal:
+                        processed_new_frame, reward, terminal, terminal_life_lost, _ = atari.step(sess, random.randrange(4))
+                        gif.append(processed_new_frame[:,:,0])
+                        deadFrames+=1
+                        if deadFrames%100==0:
+                            print(deadFrames)
+                    if run == 1:
+                        save_vid("DeadRun", gif)
+                        print("finally out after",deadFrames,"dead frames")
+
                     action = explore_exploit_sched.get_action(sess, frame_number, atari.state, evaluation=is_eval)
 
                     processed_new_frame, reward, terminal, terminal_life_lost, _ = atari.step(sess, action)
                     frame_number += 1
                     epoch_frame += 1
                     episode_reward_sum += reward
+
 
                     # Clip the reward
                     clipped_reward = clip_reward(reward)
@@ -536,7 +550,8 @@ def train():
                     if frame_number % UPDATE_FREQ == 0 and frame_number > REPLAY_MEMORY_START_SIZE:
                         loss, TD_error = learn(sess, my_replay_memory, MAIN_DQN, TARGET_DQN,
                                      BS, gamma=DISCOUNT_FACTOR)  # (8★)
-                        log_list.append([loss, TD_error])
+                        log_list[0].append(loss)
+                        log_list[1].append(TD_error)
                     if frame_number % NETW_UPDATE_FREQ == 0 and frame_number > REPLAY_MEMORY_START_SIZE:
                         update_networks(sess)  # (9★)
 
@@ -551,10 +566,10 @@ def train():
 
 
             # Save the network parameters, Memory & Logs
-            saver.save(sess, "/home/Kapok/Saves/Base/Pong/Weights/"+str(frame_number))
-            np.savez(        "/home/Kapok/Saves/Base/Pong/Saves/Memory", my_replay_memory.actions, my_replay_memory.rewards, my_replay_memory.frames,my_replay_memory.terminal_flags)
-            np.save(         "/home/Kapok/Saves/Base/Pong/Logs/Logs_"+str(frame_number), log_list)
-            logs = []
+            saver.save(sess, "/data/Saves/Baseline/Pong/Weights/"+str(frame_number))
+            np.savez(        "/data/Saves/Baseline/Pong/Memory/Memory", my_replay_memory.actions, my_replay_memory.rewards, my_replay_memory.frames,my_replay_memory.terminal_flags)
+            np.savez(         "/data/Saves/Baseline/Pong/Logs/Logs_"+str(frame_number), log_list[0],log_list[1])
+            log_list = [[],[]]
             print("saved")
 
 

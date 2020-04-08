@@ -1,4 +1,4 @@
-
+import imageio
 import random
 import gym
 import tensorflow as tf
@@ -7,7 +7,7 @@ import numpy as np
 
 TRAIN = True
 
-ENV_NAME = 'BreakoutDeterministic-v4'
+ENV_NAME = 'BreakoutDeterministic-v0'
 #ENV_NAME = 'PongDeterministic-v4'
 # You can increase the learning rate to 0.00025 in Pong for quicker results
 
@@ -100,7 +100,7 @@ class DQN(object):
             kernel_initializer=tf.variance_scaling_initializer(scale=2), name='value')
 
         # Combining value and advantage into Q-values as described above
-        self.q_values = self.value + tf.subtract(self.advantage, tf.reduce_mean(self.advantage, axis=1, keepdims=True))
+        self.q_values = self.value + tf.subtract(self.advantage, tf.reduce_mean(self.advantage, axis=1, keep_dims=True))
         self.best_action = tf.argmax(self.q_values, 1)
 
         # The next lines perform the parameter update. This will be explained in detail later.
@@ -488,6 +488,8 @@ saver = tf.train.Saver()
 MAIN_DQN_VARS = tf.trainable_variables(scope='mainDQN')
 TARGET_DQN_VARS = tf.trainable_variables(scope='targetDQN')
 
+def save_vid(fname, images):
+    imageio.mimsave("/home/kapok/Gifs/"+fname+".gif", images)
 
 def train():
     """Contains the training and evaluation loops"""
@@ -501,13 +503,16 @@ def train():
 
 
     with tf.Session() as sess:
-        #sess.run(init)
-        saver.restore(sess, "/home/Kapok/BaseLines_Saves/Breakout/Weights/9866587")
-        my_replay_memory.load(np.load("/home/Kapok/BaseLines_Saves/Breakout/Memory.npz"))
-        frame_number = 9866587
-        run = 10000
+        sess.run(init)
+        #saver.restore(sess, "/home/Kapok/BaseLines_Saves/Breakout/Weights/9866587")
+        #my_replay_memory.load(np.load("/home/Kapok/BaseLines_Saves/Breakout/Memory.npz"))
+        frame_number = 0#866587
+        run = 0
         rewards = []
-        log_list = []
+        log_list = [[],[]]
+        gif=[]
+        deadFrames=0
+        terminal = False
         is_eval =False
         while frame_number < MAX_FRAMES:
 
@@ -518,9 +523,21 @@ def train():
                 episode_reward_sum = 0
                 run += 1
                 for _ in range(MAX_EPISODE_LENGTH):
-                    # (4★)
+
+                    while run ==1 and not terminal:
+                        processed_new_frame, reward, terminal, terminal_life_lost, _ = atari.step(sess, random.randrange(4))
+                        gif.append(processed_new_frame[:,:,0])
+                        deadFrames+=1
+                        if deadFrames%100==0:
+                            print(deadFrames)
+                    if run == 1:
+                        save_vid("DeadRun", gif)
+                        print("finally out after",deadFrames,"dead frames")
+
+
                     action = explore_exploit_sched.get_action(sess, frame_number, atari.state, evaluation=is_eval)
-                    # (5★)
+
+
                     processed_new_frame, reward, terminal, terminal_life_lost, _ = atari.step(sess, action)
                     frame_number += 1
                     epoch_frame += 1
@@ -538,7 +555,8 @@ def train():
                     if frame_number % UPDATE_FREQ == 0 and frame_number > REPLAY_MEMORY_START_SIZE:
                         loss, TD_error = learn(sess, my_replay_memory, MAIN_DQN, TARGET_DQN,
                                      BS, gamma=DISCOUNT_FACTOR)  # (8★)
-                        log_list.append([loss, TD_error])
+                        log_list[0].append(loss)
+                        log_list[1].append(TD_error)
                     if frame_number % NETW_UPDATE_FREQ == 0 and frame_number > REPLAY_MEMORY_START_SIZE:
                         update_networks(sess)  # (9★)
 
@@ -552,12 +570,13 @@ def train():
                         break
 
 
-            # Save the network parameters, Memory & Logs
-            saver.save(sess, "/home/Kapok/BaseLines_Saves/"+str(frame_number))
-            np.savez("/home/Kapok/BaseLines_Saves/Memory", my_replay_memory.actions, my_replay_memory.rewards, my_replay_memory.frames,my_replay_memory.terminal_flags)
-            np.save("/home/Kapok/BaseLines_Saves/Logs_"+str(frame_number), log_list)
-            logs = []
-            print("saved")
+                        # Save the network parameters, Memory & Logs
+                    saver.save(sess, "/data/Saves/Baseline/Pong/Weights/" + str(frame_number))
+                    np.savez("/data/Saves/Baseline/Pong/Memory/Memory", my_replay_memory.actions,
+                             my_replay_memory.rewards, my_replay_memory.frames, my_replay_memory.terminal_flags)
+                    np.savez("/data/Saves/Baseline/Pong/Logs/Logs_" + str(frame_number), log_list[0], log_list[1])
+                    log_list = [[], []]
+                    print("saved")
 
 
 
