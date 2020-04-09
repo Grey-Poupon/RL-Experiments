@@ -64,9 +64,7 @@ class DQN(object):
         self.frame_width = frame_width
         self.agent_history_length = agent_history_length
 
-        self.input = tf.placeholder(shape=[None, self.frame_height,
-                                           self.frame_width, self.agent_history_length],
-                                    dtype=tf.float32)
+        self.input = tf.placeholder(shape=[None, self.frame_height, self.frame_width, 1], dtype=tf.float32)
         # Normalizing the input
         self.inputscaled = self.input / 255
 
@@ -84,17 +82,21 @@ class DQN(object):
             kernel_initializer=tf.variance_scaling_initializer(scale=2),
             padding="valid", activation=tf.nn.relu, use_bias=False, name='conv3')
         self.conv4 = tf.layers.conv2d(
-            inputs=self.conv3, filters=hidden, kernel_size=[7, 7], strides=1,
+            inputs=self.conv3, filters=1024, kernel_size=[7, 7], strides=1,
             kernel_initializer=tf.variance_scaling_initializer(scale=2),
             padding="valid", activation=tf.nn.relu, use_bias=False, name='conv4')
 
         # Splitting into value and advantage stream
-        self.valuestream, self.advantagestream = tf.split(self.conv4, 2, 3)
-        self.valuestream = tf.layers.flatten(self.valuestream)
-        self.advantagestream = tf.layers.flatten(self.advantagestream)
+        # value,  num_of_splits, axis
+        self.flat = tf.layers.flatten(self.conv4)
+        self.lstm = tf.keras.layers.LSTM(units=512, input_shape=(1024,), stateful=True, return_sequences=True)(
+            tf.expand_dims(self.flat, 0))
+        self.valuestream, self.advantagestream = tf.split(tf.reshape(self.lstm, [512, 1]), 2)
+
         self.advantage = tf.layers.dense(
             inputs=self.advantagestream, units=self.n_actions,
             kernel_initializer=tf.variance_scaling_initializer(scale=2), name="advantage")
+
         self.value = tf.layers.dense(
             inputs=self.valuestream, units=1,
             kernel_initializer=tf.variance_scaling_initializer(scale=2), name='value')
@@ -243,6 +245,7 @@ class ReplayMemory(object):
         """
         if frame.shape != (self.frame_height, self.frame_width):
             raise ValueError('Dimension of frame is wrong!')
+
         self.actions[self.current] = action
         self.frames[self.current, ...] = frame
         self.rewards[self.current] = reward
@@ -283,9 +286,28 @@ class ReplayMemory(object):
             self.states[i] = self._get_state(idx - 1)
             self.new_states[i] = self._get_state(idx)
 
-        return np.transpose(self.states, axes=(0, 2, 3, 1)), self.actions[self.indices], self.rewards[
-            self.indices], np.transpose(self.new_states, axes=(0, 2, 3, 1)), self.terminal_flags[self.indices]
+        return np.transpose(self.frames, axes=(1, 2, 0)), self.actions[self.indices], self.rewards[
+            self.indices], np.transpose(self.new_states, axes=(1, 2, 0)), self.terminal_flags[self.indices]
 
+    def get_random_ep(self):
+        idx = random.randrange(0, self.count)
+        l_idx = idx - 1
+        r_idx = idx
+
+        while l_idx > 0 and self.terminal_flags[l_idx] != False:
+            l_idx -= 1
+
+        while r_idx < self.count and self.terminal_flags[r_idx] != False:
+            r_idx += 1
+
+        states     = self.frames[l_idx+1:r_idx]
+        new_states = self.frames[l_idx+2:r_idx+1]
+
+        return np.transpose(states, axes=(0, 2, 3, 1)),
+        self.actions[l_idx+1:r_idx+1],
+        self.rewards[l_idx+1:r_idx+1],
+        np.transpose(new_states, axes=(0, 2, 3, 1)),
+        self.terminal_flags[l_idx+1:r_idx+1]
 
 def learn(session, replay_memory, main_dqn, target_dqn, batch_size, gamma):
     """
@@ -303,7 +325,7 @@ def learn(session, replay_memory, main_dqn, target_dqn, batch_size, gamma):
     Then a parameter update is performed on the main DQN.
     """
     # Draw a minibatch from the replay memory
-    states, actions, rewards, new_states, terminal_flags = replay_memory.get_minibatch()
+    states, actions, rewards, new_states, terminal_flags = replay_memory.get_random_ep()
     # The main network estimates which action is best (in the next
     # state s', new_states is passed!)
     # for every transition in the minibatch
@@ -312,16 +334,6 @@ def learn(session, replay_memory, main_dqn, target_dqn, batch_size, gamma):
     # for every transition in the minibatch
     q_vals = session.run(target_dqn.q_values, feed_dict={target_dqn.input:new_states})
     double_q = q_vals[range(batch_size), arg_q_max]
-
-
-
-
-
-
-
-
-
-
 
     # Bellman equation. Multiplication with (1-terminal_flags) makes sure that
     # if the game is over, targetQ=rewards
@@ -403,7 +415,7 @@ class Atari(object):
             for _ in range(random.randint(1, self.no_op_steps)):
                 frame, _, _, _ = self.env.step(1)  # Action 'Fire'
         processed_frame = self.process_frame(sess, frame)  # (★★★)
-        self.state = np.repeat(processed_frame, self.agent_history_length, axis=2)
+        self.state = processed_frame
 
         return terminal_life_lost
 
@@ -422,11 +434,9 @@ class Atari(object):
             terminal_life_lost = terminal
         self.last_lives = info['ale.lives']
 
-        processed_new_frame = self.process_frame(sess, new_frame)  # (6★)
-        new_state = np.append(self.state[:, :, 1:], processed_new_frame, axis=2)  # (6★)
-        self.state = new_state
+        self.state = self.process_frame(sess, new_frame)  # (6★)
 
-        return processed_new_frame, reward, terminal, terminal_life_lost, new_frame
+        return self.state, reward, terminal, terminal_life_lost, new_frame
 
 
 def clip_reward(reward):
@@ -548,7 +558,7 @@ def train():
 
                     # (7★) Store transition in the replay memory
                     my_replay_memory.add_experience(action=action,
-                                                    frame=processed_new_frame[:, :, 0],
+                                                    frame=processed_new_frame,
                                                     reward=clipped_reward,
                                                     terminal=terminal_life_lost)
 
@@ -571,10 +581,10 @@ def train():
 
 
                         # Save the network parameters, Memory & Logs
-                    saver.save(sess, "/data/Saves/Baseline/Pong/Weights/" + str(frame_number))
-                    np.savez("/data/Saves/Baseline/Pong/Memory/Memory", my_replay_memory.actions,
+                    saver.save(sess, "/data/Saves/Recurrent/Pong/Weights/" + str(frame_number))
+                    np.savez("/data/Saves/Recurrent/Pong/Memory/Memory", my_replay_memory.actions,
                              my_replay_memory.rewards, my_replay_memory.frames, my_replay_memory.terminal_flags)
-                    np.savez("/data/Saves/Baseline/Pong/Logs/Logs_" + str(frame_number), log_list[0], log_list[1])
+                    np.savez("/data/Saves/Recurrent/Pong/Logs/Logs_" + str(frame_number), log_list[0], log_list[1])
                     log_list = [[], []]
                     print("saved")
 
