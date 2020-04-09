@@ -3,11 +3,11 @@ import random
 import gym
 import tensorflow as tf
 import numpy as np
-
+from array2gif import write_gif
 
 TRAIN = True
 
-ENV_NAME = 'BreakoutDeterministic-v0'
+ENV_NAME = 'Pong-v0'
 #ENV_NAME = 'PongDeterministic-v4'
 # You can increase the learning rate to 0.00025 in Pong for quicker results
 
@@ -215,7 +215,7 @@ class ReplayMemory(object):
         # Pre-allocate memory
         self.actions = np.empty(self.size, dtype=np.int32)
         self.rewards = np.empty(self.size, dtype=np.float32)
-        self.frames = np.empty((self.size, self.frame_height, self.frame_width), dtype=np.uint8)
+        self.frames = np.empty((self.size, self.frame_height, self.frame_width, 1), dtype=np.uint8)
         self.terminal_flags = np.empty(self.size, dtype=np.bool)
 
         # Pre-allocate memory for the states and new_states in a minibatch
@@ -243,8 +243,8 @@ class ReplayMemory(object):
             reward: A float determining the reward the agend received for performing an action
             terminal: A bool stating whether the episode terminated
         """
-        if frame.shape != (self.frame_height, self.frame_width):
-            raise ValueError('Dimension of frame is wrong!')
+        if frame.shape != (self.frame_height, self.frame_width, 1):
+            raise ValueError('Dimension of frame is wrong!\n Expected ('+str(self.frame_height) +','+ str(self.frame_width) +', 1)\n Got '+str(frame.shape))
 
         self.actions[self.current] = action
         self.frames[self.current, ...] = frame
@@ -303,10 +303,10 @@ class ReplayMemory(object):
         states     = self.frames[l_idx+1:r_idx]
         new_states = self.frames[l_idx+2:r_idx+1]
 
-        return np.transpose(states, axes=(0, 2, 3, 1)),
+        return np.transpose(states, axes=(1, 2, 0)),
         self.actions[l_idx+1:r_idx+1],
         self.rewards[l_idx+1:r_idx+1],
-        np.transpose(new_states, axes=(0, 2, 3, 1)),
+        np.transpose(new_states, axes=(1, 2, 0)),
         self.terminal_flags[l_idx+1:r_idx+1]
 
 def learn(session, replay_memory, main_dqn, target_dqn, batch_size, gamma):
@@ -427,7 +427,10 @@ class Atari(object):
             terminal_life_lost = terminal
         self.last_lives = info['ale.lives']
 
-        self.state = self.process_frame(sess, new_frame)  # (6★)
+        self.state = self.process_frame(sess, new_frame)
+
+        if self.state.shape != (84, 84, 1):
+            raise ValueError('Dimension of frame is wrong!\n Expected (84, 84, 1)\n Got '+str(self.state.shape))
 
         return self.state, reward, terminal, terminal_life_lost, new_frame
 
@@ -491,8 +494,8 @@ saver = tf.train.Saver()
 MAIN_DQN_VARS = tf.trainable_variables(scope='mainDQN')
 TARGET_DQN_VARS = tf.trainable_variables(scope='targetDQN')
 
-def save_vid(fname, images):
-    imageio.mimsave("/home/kapok/Gifs/"+fname+".gif", images)
+def save_vid(images, fname):
+    imageio.mimsave(fname, images)
 
 def train():
     """Contains the training and evaluation loops"""
@@ -509,11 +512,12 @@ def train():
         sess.run(init)
         #saver.restore(sess, "/home/Kapok/BaseLines_Saves/Breakout/Weights/9866587")
         #my_replay_memory.load(np.load("/home/Kapok/BaseLines_Saves/Breakout/Memory.npz"))
-        frame_number = 0#866587
+        frame_number = 0
         run = 0
         rewards = []
         log_list = [[],[]]
         gif=[]
+        processed_gif = []
         deadFrames=0
         terminal = False
         is_eval =False
@@ -527,31 +531,38 @@ def train():
                 run += 1
                 for _ in range(MAX_EPISODE_LENGTH):
 
-                    while run ==1 and not terminal:
-                        processed_new_frame, reward, terminal, terminal_life_lost, _ = atari.step(sess, random.randrange(4))
-                        gif.append(processed_new_frame[:,:,0])
-                        deadFrames+=1
-                        if deadFrames%100==0:
-                            print(deadFrames)
-                    if run == 1:
-                        save_vid("DeadRun", gif)
-                        print("finally out after",deadFrames,"dead frames")
+                    # while run == 1 and not terminal:
+                    #     processed_new_frame, reward, terminal, terminal_life_lost, new_frame = atari.step(sess, random.randrange(4))
+                    #     gif.append(np.transpose(new_frame, axes=(1, 0, 2)))
+                    #     processed_gif.append(processed_new_frame)
+                    #     deadFrames+=1
+                    #     if deadFrames%100==0:
+                    #         print(deadFrames)
+                    #         print(new_frame.shape)
+                    # if run == 1:
+                    #     write_gif(gif, "/home/kapok/Gifs/DeadFrames"+str(run)+".gif", fps=30)
+                    #     save_vid(processed_gif, "/home/kapok/Gifs/DeadFramesProcessed"+str(run)+".gif")
+                    #
+                    #     print("finally out after",deadFrames,"dead frames")
 
+                    state = atari.state
+                    action = explore_exploit_sched.get_action(sess, frame_number, state, evaluation=is_eval)
 
-                    action = explore_exploit_sched.get_action(sess, frame_number, atari.state, evaluation=is_eval)
-
-
-                    processed_new_frame, reward, terminal, terminal_life_lost, _ = atari.step(sess, action)
+                    processed_new_frame, reward, terminal, terminal_life_lost, new_frame = atari.step(sess, action)
                     frame_number += 1
                     epoch_frame += 1
                     episode_reward_sum += reward
+
+                    if is_eval:
+                        gif.append(np.transpose(new_frame, axes=(1, 0, 2)))
+                        processed_gif.append(processed_new_frame)
 
                     # Clip the reward
                     clipped_reward = clip_reward(reward)
 
                     # (7★) Store transition in the replay memory
                     my_replay_memory.add_experience(action=action,
-                                                    frame=processed_new_frame,
+                                                    frame=state,
                                                     reward=clipped_reward,
                                                     terminal=terminal_life_lost)
 
@@ -564,8 +575,10 @@ def train():
                         if is_eval:
                             print("\n############ EVALUATION ############\n")
                             is_eval = False
-                        print("Run: " + str(run) + "  Reward: " + str(episode_reward_sum) + "  Explore Rate: " + str(
-                            explore_exploit_sched.get_epsilon(frame_number)) + "  Frame Count: " + str(frame_number))
+                            write_gif(gif, "/home/kapok/Gifs/DeadFrames_" + str(run) + ".gif", fps=30)
+                            save_vid(processed_gif, "/home/kapok/Gifs/DeadFramesProcessed_"+str(run)+".gif")
+                            gif, processed_gif = [], []
+                        print("Run: " + str(run) + "  Reward: " + str(episode_reward_sum) + "  Explore Rate: " + str(explore_exploit_sched.get_epsilon(frame_number)) + "  Frame Count: " + str(frame_number))
                         terminal = False
 
                         if frame_number > REPLAY_MEMORY_START_SIZE:
@@ -575,14 +588,13 @@ def train():
                             log_list[1].append(TD_error)
                         break
 
-
-                        # Save the network parameters, Memory & Logs
-                    saver.save(sess, "/data/Saves/Recurrent/Pong/Weights/" + str(frame_number))
-                    np.savez("/data/Saves/Recurrent/Pong/Memory/Memory", my_replay_memory.actions,
-                             my_replay_memory.rewards, my_replay_memory.frames, my_replay_memory.terminal_flags)
-                    np.savez("/data/Saves/Recurrent/Pong/Logs/Logs_" + str(frame_number), log_list[0], log_list[1])
-                    log_list = [[], []]
-                    print("saved")
+            # Save the network parameters, Memory & Logs
+            saver.save(sess, "/data/Saves/Recurrent/Pong/Weights/" + str(frame_number))
+            np.savez("/data/Saves/Recurrent/Pong/Memory/Memory", my_replay_memory.actions,
+                     my_replay_memory.rewards, my_replay_memory.frames, my_replay_memory.terminal_flags)
+            np.savez("/data/Saves/Recurrent/Pong/Logs/Logs_" + str(frame_number), log_list[0], log_list[1])
+            log_list = [[], []]
+            print("saved")
 
 
 
