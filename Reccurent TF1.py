@@ -555,11 +555,8 @@ def train():
                                                     reward=clipped_reward,
                                                     terminal=terminal_life_lost)
 
-                    if frame_number % UPDATE_FREQ == 0 and frame_number > REPLAY_MEMORY_START_SIZE:
-                        loss, TD_error = learn(sess, my_replay_memory, MAIN_DQN, TARGET_DQN,
-                                     BS, gamma=DISCOUNT_FACTOR)  # (8★)
-                        log_list[0].append(loss)
-                        log_list[1].append(TD_error)
+
+
                     if frame_number % NETW_UPDATE_FREQ == 0 and frame_number > REPLAY_MEMORY_START_SIZE:
                         update_networks(sess)  # (9★)
 
@@ -570,6 +567,12 @@ def train():
                         print("Run: " + str(run) + "  Reward: " + str(episode_reward_sum) + "  Explore Rate: " + str(
                             explore_exploit_sched.get_epsilon(frame_number)) + "  Frame Count: " + str(frame_number))
                         terminal = False
+
+                        if frame_number > REPLAY_MEMORY_START_SIZE:
+                            loss, TD_error = learn(sess, my_replay_memory, MAIN_DQN, TARGET_DQN, BS,
+                                                   gamma=DISCOUNT_FACTOR)
+                            log_list[0].append(loss)
+                            log_list[1].append(TD_error)
                         break
 
 
