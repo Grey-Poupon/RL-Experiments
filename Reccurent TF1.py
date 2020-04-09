@@ -89,9 +89,9 @@ class DQN(object):
         # Splitting into value and advantage stream
         # value,  num_of_splits, axis
         self.flat = tf.layers.flatten(self.conv4)
-        self.lstm = tf.keras.layers.LSTM(units=512, input_shape=(1024,), stateful=True, return_sequences=True)(
+        self.lstm = tf.keras.layers.LSTM(units=hidden, input_shape=(1024,), stateful=True, return_sequences=True)(
             tf.expand_dims(self.flat, 0))
-        self.valuestream, self.advantagestream = tf.split(tf.reshape(self.lstm, [512, 1]), 2)
+        self.valuestream, self.advantagestream = tf.split(tf.reshape(self.lstm, [hidden, 1]), 2)
 
         self.advantage = tf.layers.dense(
             inputs=self.advantagestream, units=self.n_actions,
@@ -324,10 +324,13 @@ def learn(session, replay_memory, main_dqn, target_dqn, batch_size, gamma):
     target Q-value that the prediction Q-value is regressed to.
     Then a parameter update is performed on the main DQN.
     """
+
+    # Before we start we wipe the lstm memory
+    main_dqn.lstm.initial_state(np.zeros(1024))
+
     # Draw a minibatch from the replay memory
     states, actions, rewards, new_states, terminal_flags = replay_memory.get_random_ep()
-    # The main network estimates which action is best (in the next
-    # state s', new_states is passed!)
+    # The main network estimates which action is best (in the next state s', new_states is passed!)
     # for every transition in the minibatch
     arg_q_max = session.run(main_dqn.best_action, feed_dict={main_dqn.input:new_states})
     # The target network estimates the Q-values (in the next state s', new_states is passed!)
@@ -343,16 +346,6 @@ def learn(session, replay_memory, main_dqn, target_dqn, batch_size, gamma):
                           feed_dict={main_dqn.input:states,
                                      main_dqn.target_q:target_q,
                                      main_dqn.action:actions})
-
-
-
-
-
-
-
-
-
-
 
     return loss, TD_error
 
