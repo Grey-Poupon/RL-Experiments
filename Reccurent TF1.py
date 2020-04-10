@@ -89,7 +89,7 @@ class DQN(object):
         # Splitting into value and advantage stream
         # value,  num_of_splits, axis
         self.flat = tf.layers.flatten(self.conv4)
-        self.lstm = tf.keras.layers.LSTM(units=hidden, input_shape=(1024,), stateful=True, return_sequences=True)(
+        self.lstm = tf.keras.layers.LSTM(units=hidden, input_shape=(1024,) , return_sequences=True)(
             tf.expand_dims(self.flat, 0))
         self.valuestream, self.advantagestream = tf.split(tf.reshape(self.lstm, [hidden, 1]), 2)
 
@@ -324,9 +324,6 @@ def learn(session, replay_memory, main_dqn, target_dqn, batch_size, gamma):
     target Q-value that the prediction Q-value is regressed to.
     Then a parameter update is performed on the main DQN.
     """
-
-    # Before we start we wipe the lstm memory
-    main_dqn.lstm.initial_state(np.zeros(1024))
 
     # Draw a minibatch from the replay memory
     states, actions, rewards, new_states, terminal_flags = replay_memory.get_random_ep()
