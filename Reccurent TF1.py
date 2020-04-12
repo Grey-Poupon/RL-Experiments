@@ -89,9 +89,13 @@ class DQN(object):
         # Splitting into value and advantage stream
         # value,  num_of_splits, axis
         self.flat = tf.layers.flatten(self.conv4)
-        self.lstm = tf.keras.layers.LSTM(units=hidden, input_shape=(1024,) , return_sequences=True)(
-            tf.expand_dims(self.flat, 0))
-        self.valuestream, self.advantagestream = tf.split(tf.reshape(self.lstm, [hidden, 1]), 2)
+        # Format (timestep, batch, inputshape)
+        self.lstm = tf.keras.layers.LSTM(units=hidden, input_shape=(1024,) , return_sequences=True)(tf.reshape(self.flat, [1, 1024, 1]))
+
+        self.valuestream, self.advantagestream = tf.split(self.lstm, 2, -1)
+
+        self.valuestream = tf.expand_dims(self.valuestream, -1)
+        self.advantagestream = tf.expand_dims(self.advantagestream, -1)
 
         self.advantage = tf.layers.dense(
             inputs=self.advantagestream, units=self.n_actions,
