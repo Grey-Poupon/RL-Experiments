@@ -7,9 +7,9 @@ import numpy as np
 
 TRAIN = True
 
-ENV_NAME = 'BreakoutDeterministic-v0'
-#ENV_NAME = 'PongDeterministic-v4'
-# You can increase the learning rate to 0.00025 in Pong for quicker results
+#ENV_NAME = 'BreakoutDeterministic-v0'
+ENV_NAME = 'Pong-v0'
+
 
 class FrameProcessor(object):
     """Resizes and converts RGB Atari frames to grayscale"""
@@ -526,13 +526,10 @@ def train():
 
                     while run ==1 and not terminal:
                         processed_new_frame, reward, terminal, terminal_life_lost, _ = atari.step(sess, random.randrange(4))
-                        gif.append(processed_new_frame[:,:,0])
                         deadFrames+=1
                         if deadFrames%100==0:
                             print(deadFrames)
-                    if run == 1:
-                        save_vid("DeadRun", gif)
-                        print("finally out after",deadFrames,"dead frames")
+
 
 
                     action = explore_exploit_sched.get_action(sess, frame_number, atari.state, evaluation=is_eval)
@@ -543,13 +540,12 @@ def train():
                     epoch_frame += 1
                     episode_reward_sum += reward
 
-                    # Clip the reward
-                    clipped_reward = clip_reward(reward)
+
 
                     # (7★) Store transition in the replay memory
                     my_replay_memory.add_experience(action=action,
                                                     frame=processed_new_frame[:, :, 0],
-                                                    reward=clipped_reward,
+                                                    reward=reward,
                                                     terminal=terminal_life_lost)
 
                     if frame_number % UPDATE_FREQ == 0 and frame_number > REPLAY_MEMORY_START_SIZE:
@@ -567,16 +563,16 @@ def train():
                         print("Run: " + str(run) + "  Reward: " + str(episode_reward_sum) + "  Explore Rate: " + str(
                             explore_exploit_sched.get_epsilon(frame_number)) + "  Frame Count: " + str(frame_number))
                         terminal = False
+                        rewards.append(episode_reward_sum)
                         break
 
 
-                        # Save the network parameters, Memory & Logs
-                    saver.save(sess, "/data/Saves/Baseline/Pong/Weights/" + str(frame_number))
-                    np.savez("/data/Saves/Baseline/Pong/Memory/Memory", my_replay_memory.actions,
-                             my_replay_memory.rewards, my_replay_memory.frames, my_replay_memory.terminal_flags)
-                    np.savez("/data/Saves/Baseline/Pong/Logs/Logs_" + str(frame_number), log_list[0], log_list[1])
-                    log_list = [[], []]
-                    print("saved")
+            # Save the network parameters, Memory & Logs
+            saver.save(sess, "/data/Saves/Baseline/Pong/Weights/" + str(frame_number))
+            np.savez("/data/Saves/Baseline/Pong/Memory/Memory", my_replay_memory.actions,my_replay_memory.rewards, my_replay_memory.frames, my_replay_memory.terminal_flags)
+            np.savez("/data/Saves/Baseline/Pong/Logs/Logs_" + str(frame_number), log_list[0], log_list[1], rewards)
+            rewards, log_list = [], [[], []]
+            print("saved")
 
 
 
