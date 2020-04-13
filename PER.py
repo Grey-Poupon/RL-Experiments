@@ -106,7 +106,7 @@ class DQN(object):
             kernel_initializer=tf.variance_scaling_initializer(scale=2), name='value')
 
         # Combining value and advantage into Q-values as described above
-        self.q_values = self.value + tf.subtract(self.advantage, tf.reduce_mean(self.advantage, axis=1, keepdims=True))
+        self.q_values = self.value + tf.subtract(self.advantage, tf.reduce_mean(self.advantage, axis=1, keep_dims=True))
         self.best_action = tf.argmax(self.q_values, 1)
 
         # The next lines perform the parameter update. This will be explained in detail later.
@@ -401,19 +401,19 @@ MAIN_DQN_VARS = tf.trainable_variables(scope='mainDQN')
 TARGET_DQN_VARS = tf.trainable_variables(scope='targetDQN')
 
 
-def save_data(frame_number, my_replay_memory, log_list, sess,SAVE_SWITCH, test=False):
+def save_data(frame_number, my_replay_memory, log_list, sess):
 
     Extension = "PER"
     Game = "Pong"
 
-    saver.save(sess, "/home/Kapok/Saves/"+Extension+"/"+Game+"/Saves/" + str(frame_number))
+    saver.save(sess, "/data/Saves/"+Extension+"/"+Game+"/Weights/" + str(frame_number))
 #    with open('memory.pkl', 'wb') as output:
 #        pickle.dump(my_replay_memory, output, pickle.HIGHEST_PROTOCOL)
-    fname = "tree_A.pkl" if SAVE_SWITCH else "tree_B.pkl"
-    SAVE_SWITCH = not SAVE_SWITCH
+    fname = "/data/Saves/"+Extension+"/"+Game+"/Memory/tree.pkl"
     with open(fname, 'wb') as output:
         pickle.dump(my_replay_memory.tree.tree, output, pickle.HIGHEST_PROTOCOL)
-    np.save("/home/Kapok/Saves/"+Extension+"/"+Game+"/Logs/Logs_" + str(frame_number), log_list)
+
+    np.savez("/data/Saves/"+Extension+"/"+Game+"/Logs/Logs_" + str(frame_number), log_list[0], log_list[1])
 
 def load_data(sess, test=False):
     saver.restore(sess, "/home/Kapok/Saves/PER/Breakout/Saves/1000420")
@@ -484,7 +484,9 @@ def train():
         run = 0
         epoch_run = 0
         rewards = []
-        log_list = []
+        log_list = [[],[]]
+        deadFrames=0
+        terminal=False
         is_eval =False
         print("Start\n\n")
         while frame_number < MAX_FRAMES:
@@ -501,20 +503,15 @@ def train():
                 epoch_run += 1
                 for f in range(MAX_EPISODE_LENGTH):
 
+                    while run == 1 and not terminal:
+                        processed_new_frame, reward, terminal, terminal_life_lost, new_frame = atari.step(sess, random.randrange(4))
+                        deadFrames+=1
+                        if deadFrames%100==0:
+                            print(deadFrames)
+
                     state = atari.state
-
-
-                    if MAKE_VIDEO:
-                        video.append(state)
-                        if len(video) > 120:
-                            save_video(frames=video, fname=frame_number)
-                            video = []
-
-
                     action = explore_exploit_sched.get_action(sess, frame_number, state, evaluation=is_eval)
-                    if f > 150 and epoch_run == 1:
-                         action = 1
-                         print(action)
+
                     processed_new_frame, reward, terminal, terminal_life_lost, _ = atari.step(sess, action)
 
                     frame_number += 1
@@ -534,7 +531,8 @@ def train():
                     if frame_number % UPDATE_FREQ == 0 and frame_number > REPLAY_MEMORY_START_SIZE:
                         loss, TD_error = learn(sess, my_replay_memory, MAIN_DQN, TARGET_DQN,
                                      BS, gamma=DISCOUNT_FACTOR)
-                        log_list.append([loss, TD_error])
+                        log_list[0].append(loss)
+                        log_list[1].append(TD_error)
                     if frame_number % NETW_UPDATE_FREQ == 0 and frame_number > REPLAY_MEMORY_START_SIZE:
                         update_networks(sess)
 
@@ -549,8 +547,8 @@ def train():
 
 
             # Save the network parameters, Memory & Logs
-            save_data(frame_number, my_replay_memory, log_list, sess, SAVE_SWITCH)
-            log_list=[]
+            save_data(frame_number, my_replay_memory, log_list, sess)
+            log_list = [[], []]
             print("saved")
 
 
