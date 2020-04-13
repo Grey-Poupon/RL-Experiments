@@ -108,8 +108,9 @@ class DQN(object):
         # Combining value and advantage into Q-values as described above
         self.q_values = self.value + tf.subtract(self.advantage, tf.reduce_mean(self.advantage, axis=1, keep_dims=True))
         self.best_action = tf.argmax(self.q_values, 1)
+        self.best_q_value = tf.reduce_max(self.q_values, 1)
 
-        # The next lines perform the parameter update. This will be explained in detail later.
+        # The next lines perform the parameter update.
 
         # targetQ according to Bellman equation:
         # Q = r + gamma*max Q', calculated in the function learn()
@@ -200,8 +201,8 @@ class ExplorationExploitationScheduler(object):
         """
 
         if np.random.rand(1) < self.get_epsilon(frame_number, evaluation):
-            return np.random.randint(0, self.n_actions)
-        return session.run(self.DQN.best_action, feed_dict={self.DQN.input: [state]})[0]
+            return np.random.randint(0, self.n_actions), 0
+        return session.run([self.DQN.best_action, self.DQN.best_q_value], feed_dict={self.DQN.input: [state]})
 
 
 def learn(session, PER_memory, main_dqn, target_dqn, batch_size, gamma, beta=1):
@@ -221,7 +222,7 @@ def learn(session, PER_memory, main_dqn, target_dqn, batch_size, gamma, beta=1):
     """
 
     # Draw a minibatch from the replay memory
-    states, actions, rewards, new_states, terminal_flags, probabilities, items = PER_memory.get_minibatch()
+    states, actions, rewards, new_states, terminal_flags, probabilities, items, ranks = PER_memory.get_minibatch()
 
     # The main network estimates which action is best (in the next
     # state s', new_states is passed!)
@@ -235,11 +236,7 @@ def learn(session, PER_memory, main_dqn, target_dqn, batch_size, gamma, beta=1):
     double_q = q_vals[range(batch_size), arg_q_max]
     # We use an importance sampling weight to reduce the bias introduces using PER
 
-    importance_sampling_weight = session.run(main_dqn.importance_weight, feed_dict={
-                                                        main_dqn.N: PER_memory.tree.get_num_leaves(),
-                                                        main_dqn.P: probabilities,
-                                                        main_dqn.M: PER_memory.tree.get_max_weight(beta),
-                                                        main_dqn.B: beta})
+    importance_sampling_weight = ranks / PER_memory.tree.get_num_leaves()
     
 
     # Bellman equation. Multiplication with (1-terminal_flags) makes sure that
@@ -339,21 +336,11 @@ class Atari(object):
 
         return processed_new_frame, reward, terminal, terminal_life_lost, new_frame
 
-
-def clip_reward(reward):
-    if reward > 0:
-        return 1
-    elif reward == 0:
-        return 0
-    else:
-        return -1
-
-
 tf.reset_default_graph()
 
 # Control parameters
-MAX_EPISODE_LENGTH = 1000       # Equivalent of 5 minutes of gameplay at 60 frames per second
-EVAL_FREQUENCY = 250000          # Number of frames the agent sees between evaluations
+MAX_EPISODE_LENGTH = 18000       # Equivalent of 5 minutes of gameplay at 60 frames per second
+EVAL_FREQUENCY = 50000          # Number of frames the agent sees between evaluations
 EVAL_STEPS = 10000               # Number of frames for one evaluation
 NETW_UPDATE_FREQ = 10000         # Number of chosen actions between updating the target network.
                                  # According to Mnih et al. 2015 this is measured in the number of
@@ -361,7 +348,7 @@ NETW_UPDATE_FREQ = 10000         # Number of chosen actions between updating the
                                  # DeepMind code, it is clearly measured in the number
                                  # of actions the agent choses
 DISCOUNT_FACTOR = 0.99           # gamma in the Bellman equation
-REPLAY_MEMORY_START_SIZE = 50000 # Number of completely random actions,
+REPLAY_MEMORY_START_SIZE = 100 # Number of completely random actions,
                                  # before the agent starts learning
 MAX_FRAMES = 1000000            # Total number of frames the agent sees
 MEMORY_SIZE = 400000            # Number of transitions stored in the replay memory
@@ -381,13 +368,11 @@ BS = 32                          # Batch size
 PATH = "output/"                 # Gifs and checkpoints will be saved here
 SUMMARIES = "summaries"          # logdir for tensorboard
 RUNID = 'run_1'
-SAVE_SWITCH = False
-MAKE_VIDEO = True
 
 atari = Atari(ENV_NAME, NO_OP_STEPS)
 
-print("The environment has the following {} actions: {}".format(atari.env.action_space.n,
-                                                                atari.env.unwrapped.get_action_meanings()))
+print("The environment has the following {} actions: {}".format(atari.env.action_space.n, atari.env.unwrapped.get_action_meanings()))
+
 # main DQN and target DQN networks:
 with tf.variable_scope('mainDQN'):
     MAIN_DQN = DQN(atari.env.action_space.n, HIDDEN, LEARNING_RATE)
@@ -401,68 +386,6 @@ MAIN_DQN_VARS = tf.trainable_variables(scope='mainDQN')
 TARGET_DQN_VARS = tf.trainable_variables(scope='targetDQN')
 
 
-def save_data(frame_number, my_replay_memory, log_list, sess):
-
-    Extension = "PER"
-    Game = "Pong"
-
-    saver.save(sess, "/data/Saves/"+Extension+"/"+Game+"/Weights/" + str(frame_number))
-#    with open('memory.pkl', 'wb') as output:
-#        pickle.dump(my_replay_memory, output, pickle.HIGHEST_PROTOCOL)
-    fname = "/data/Saves/"+Extension+"/"+Game+"/Memory/tree.pkl"
-    with open(fname, 'wb') as output:
-        pickle.dump(my_replay_memory.tree.tree, output, pickle.HIGHEST_PROTOCOL)
-
-    np.savez("/data/Saves/"+Extension+"/"+Game+"/Logs/Logs_" + str(frame_number), log_list[0], log_list[1])
-
-def load_data(sess, test=False):
-    saver.restore(sess, "/home/Kapok/Saves/PER/Breakout/Saves/1000420")
-    with open('tree.pkl', 'rb') as input:
-        tree = pickle.load(input)
-        print("Loaded Memory")
-        return sess, tree
-
-def save_video(frames, fname):
-    with imageio.get_writer('/home/Kapok/Saves/PER/Breakout/Gifs/'+fname+'.gif', mode='I') as writer:
-         for image in frames:
-            writer.append_data(image)
-
-def load_logs():
-    TD_ERROR = []
-    LOSS = []
-    i=0
-    for file in sorted(os.listdir("/home/Kapok/Saves/PER/Pong/Logs")):
-        print(file)
-        if i < 2:
-            i+=1
-            continue
-        logs = np.load("/home/Kapok/Saves/PER/Pong/Logs/"+file, allow_pickle=True)
-        print(logs.shape)
-        LOSS.extend(logs[..., 0])
-        TD_ERROR.extend(logs[..., 1])
-    return LOSS,TD_ERROR
-
-def show_logs():
-    loss, td = load_logs()
-    frames = 4 * np.array(list(range(len(loss))))
-
-    splits = 4
-    step = math.floor(len(loss) / splits)
-
-    # for i in range(splits):
-    #
-    #     plt.plot(frames[i*step:(i+1)*step], loss[i*step:(i+1)*step],'bo')
-    #     plt.ylabel('Loss')
-    #     plt.xlabel("Frames")
-    #     plt.show()
-
-    td = np.average(np.array(td), axis=-1)
-    print(td.shape)
-    plt.plot(frames, td, 'bo')#, 4 * np.array(list(range(len(td)))))
-    plt.ylabel('TD Error')
-    plt.xlabel("Frames")
-    plt.show()
-
 def train():
     """Contains the training and evaluation loops"""
     my_replay_memory = PEReplayMemory(size=MEMORY_SIZE, batch_size=BS)
@@ -473,87 +396,60 @@ def train():
         replay_memory_start_size=REPLAY_MEMORY_START_SIZE,
         max_frames=MAX_FRAMES)
 
-    video=[]
-
-
     with tf.Session() as sess:
+
         sess.run(init)
-       # sess, tree = load_data(sess)
-       # my_replay_memory.load_tree(tree)
         frame_number = 0
-        run = 0
-        epoch_run = 0
         rewards = []
-        log_list = [[],[]]
-        deadFrames=0
-        terminal=False
-        is_eval =False
-        print("Start\n\n")
+        loss_list = []
+        q_values=[]
+        run = 0
+
         while frame_number < MAX_FRAMES:
 
             epoch_frame = 0
-            epoch_run = 0
-            is_eval = True
             while epoch_frame < EVAL_FREQUENCY:
-
-                start = time.perf_counter()
+                run += 1
                 terminal_life_lost = atari.reset(sess)
                 episode_reward_sum = 0
-                run += 1
-                epoch_run += 1
-                for f in range(MAX_EPISODE_LENGTH):
+                for _ in range(MAX_EPISODE_LENGTH):
 
-                    while run == 1 and not terminal:
-                        processed_new_frame, reward, terminal, terminal_life_lost, new_frame = atari.step(sess, random.randrange(4))
-                        deadFrames+=1
-                        if deadFrames%100==0:
-                            print(deadFrames)
-
-                    state = atari.state
-                    action = explore_exploit_sched.get_action(sess, frame_number, state, evaluation=is_eval)
+                    action, q_val = explore_exploit_sched.get_action(sess, frame_number, atari.state)
+                    q_values.append(q_val)
 
                     processed_new_frame, reward, terminal, terminal_life_lost, _ = atari.step(sess, action)
-
                     frame_number += 1
                     epoch_frame += 1
-                    episode_reward_sum += reward                                           
+                    episode_reward_sum += reward
 
-                    # Clip the reward
-                    clipped_reward = clip_reward(reward)
-
-                    # Store transition in the replay memory
+                    # (7★) Store transition in the replay memory
                     my_replay_memory.add_experience(action=action,
-                                                    state=state,
-                                                    new_state=processed_new_frame,
-                                                    reward=clipped_reward,
+                                                    frame=processed_new_frame[:, :, 0],
+                                                    reward=reward,
                                                     terminal=terminal_life_lost)
 
                     if frame_number % UPDATE_FREQ == 0 and frame_number > REPLAY_MEMORY_START_SIZE:
-                        loss, TD_error = learn(sess, my_replay_memory, MAIN_DQN, TARGET_DQN,
-                                     BS, gamma=DISCOUNT_FACTOR)
-                        log_list[0].append(loss)
-                        log_list[1].append(TD_error)
+                        loss = learn(sess, my_replay_memory, MAIN_DQN, TARGET_DQN,
+                                     BS, gamma=DISCOUNT_FACTOR)  # (8★)
+                        loss_list.append(loss)
                     if frame_number % NETW_UPDATE_FREQ == 0 and frame_number > REPLAY_MEMORY_START_SIZE:
                         update_networks(sess)
 
                     if terminal:
-                        end = time.perf_counter()
-                        if is_eval:
-                            print("\n############ EVALUATION ############\n")
-                            is_eval = False
-                        print("Run: " + str(run) + "  Reward: " + str(episode_reward_sum) + "  Explore Rate: " + str(explore_exploit_sched.get_epsilon(frame_number)) + "  Frame Count: " + str(frame_number) + "  Time:"+str(end-start))
+                        print("Run: " + str(run) + "  Reward: " + str(episode_reward_sum) + "  Explore Rate: " + str(
+                            explore_exploit_sched.get_epsilon(frame_number)) + "  Frame Count: " + str(frame_number))
                         terminal = False
+                        rewards.append(episode_reward_sum)
                         break
 
-
-            # Save the network parameters, Memory & Logs
-            save_data(frame_number, my_replay_memory, log_list, sess)
-            log_list = [[], []]
-            print("saved")
+        saver.save(sess, "/data/Saves/PER/Pong/Weights/" + str(frame_number))
+        np.savez("/data/Saves/PER/Pong/Memory/Memory", my_replay_memory.actions, my_replay_memory.rewards,
+                 my_replay_memory.frames, my_replay_memory.terminal_flags)
+        np.savez("/data/Saves/PER/Pong/Logs/Logs_" + str(frame_number), loss_list, rewards, q_values)
+        rewards, loss_list, q_values = [], [], []
+        print("saved")
 
 
 
 if TRAIN:
     train()
-#    show_logs()
-

@@ -36,6 +36,19 @@ class PER_TEST(unittest.TestCase):
             self.assertGreaterEqual(curr, leaf.get_priority())
             curr = leaf.get_priority()
 
+    def test_rank_order(self):
+        sumTree = SumTree(10, [Item("A", 6), Item("A", 3), Item("A", 1), Item("A", 0), Item("A", 9), Item("A", 8),
+                               Item("A", 5), Item("A", 8), Item("A", 7), Item("A", -1)])
+        curr = None
+
+        for leaf in sumTree.get_leaves():
+            if curr is None:
+                curr = leaf.get_rank()
+                continue
+
+            self.assertLess(curr, leaf.get_rank())
+            curr = leaf.get_rank()
+
     def test_sum_priority(self):
         sumTree = SumTree(10, [Item("A", 6), Item("A", 3), Item("A", 1), Item("A", 0), Item("A", 9), Item("A", 8),
                                Item("A", 5), Item("A", 8), Item("A", 7), Item("A", -1)])
@@ -78,7 +91,7 @@ class PER_TEST(unittest.TestCase):
         sumTree.add_item(y)
         sumTree.add_item(z)
 
-        self.assertListEqual(list(sumTree.get_leaves())[-3:], [x,y,z])
+        self.assertListEqual(list(sumTree.get_leaves())[:3], [z, y, x])
 
     def test_changing_priority(self):
         items = [Item("A", 6), Item("A", 3), Item("A", 1), Item("A", 0), Item("A", 9), Item("A", 8),  Item("A", 5)]
