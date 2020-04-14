@@ -88,17 +88,14 @@ class DQN(object):
 
         # Splitting into value and advantage stream
         # value,  num_of_splits, axis
-
         self.flat = tf.layers.flatten(self.conv4)
-        self.lstm = tf.keras.layers.LSTM(units=hidden, input_shape=(1024,), return_sequences=True)(tf.expand_dims(self.flat, 0))#(tf.reshape(self.flat, [1, 1024, 1]))
-       # self.lstm = tf.reshape(self.lstm, [1024,1])
-        print("LSTM "+str(self.lstm.shape))
+        # Format (timestep, batch, inputshape)
+        self.lstm = tf.keras.layers.LSTM(units=hidden, input_shape=(1024,) , return_sequences=True)(tf.reshape(self.flat, [1, 1024, 1]))
 
-        self.valuestream, self.advantagestream = tf.split(self.flat, 2,-1)
-        # self.valuestream     = tf.expand_dims(self.valuestream, -1)
-        # self.advantagestream = tf.expand_dims(self.advantagestream, -1)
-        print("ValueStream" + str(self.valuestream.shape))
-        print("AdvantageStream" + str(self.advantagestream.shape))
+        self.valuestream, self.advantagestream = tf.split(self.lstm, 2, -1)
+
+        self.valuestream = tf.expand_dims(self.valuestream, -1)
+        self.advantagestream = tf.expand_dims(self.advantagestream, -1)
 
         self.advantage = tf.layers.dense(
             inputs=self.advantagestream, units=self.n_actions,
@@ -108,14 +105,9 @@ class DQN(object):
             inputs=self.valuestream, units=1,
             kernel_initializer=tf.variance_scaling_initializer(scale=2), name='value')
 
-        print("Value" + str(self.value.shape))
-        print("Advantage" + str(self.advantage.shape))
-
         # Combining value and advantage into Q-values as described above
         self.q_values = self.value + tf.subtract(self.advantage, tf.reduce_mean(self.advantage, axis=1, keep_dims=True))
-        print("Q_values"+str(self.q_values.shape))
-        self.best_action = tf.argmax(tf.squeeze(self.q_values), -1)
-        print("Best"+str(self.best_action.shape))
+        self.best_action = tf.argmax(self.q_values, 1)
 
         # The next lines perform the parameter update. This will be explained in detail later.
 
@@ -125,7 +117,8 @@ class DQN(object):
         # Action that was performed
         self.action = tf.placeholder(shape=[None], dtype=tf.int32)
         # Q value of the action that was performed
-        self.Q = tf.squeeze(tf.reduce_sum(tf.multiply(self.q_values, tf.one_hot(self.action, self.n_actions, dtype=tf.float32)),axis=1))
+        self.Q = tf.reduce_sum(tf.multiply(self.q_values, tf.one_hot(self.action, self.n_actions, dtype=tf.float32)),
+                               axis=1)
         self.TD_Error = self.target_q-tf.reduce_max(self.q_values, axis=1)
 
         # Parameter updates
@@ -199,7 +192,7 @@ class ExplorationExploitationScheduler(object):
 
         if np.random.rand(1) < self.get_epsilon(frame_number, evaluation):
             return np.random.randint(0, self.n_actions)
-        return session.run(self.DQN.best_action, feed_dict={self.DQN.input: [state]})
+        return session.run(self.DQN.best_action, feed_dict={self.DQN.input: [state]})[0]
 
 
 class ReplayMemory(object):
@@ -305,16 +298,20 @@ class ReplayMemory(object):
         l_idx = idx - 1
         r_idx = idx
 
-        while l_idx >= 0 and self.terminal_flags[l_idx] != True:
+        while l_idx > 0 and self.terminal_flags[l_idx] != False:
             l_idx -= 1
 
-        while r_idx < self.count and self.terminal_flags[r_idx] != True:
+        while r_idx < self.count and self.terminal_flags[r_idx] != False:
             r_idx += 1
 
         states     = self.frames[l_idx+1:r_idx]
         new_states = self.frames[l_idx+2:r_idx+1]
 
-        return states, self.actions[l_idx+1:r_idx], self.rewards[l_idx+1:r_idx], new_states, self.terminal_flags[l_idx+1:r_idx]
+        return np.transpose(states, axes=(1, 2, 0)),
+        self.actions[l_idx+1:r_idx+1],
+        self.rewards[l_idx+1:r_idx+1],
+        np.transpose(new_states, axes=(1, 2, 0)),
+        self.terminal_flags[l_idx+1:r_idx+1]
 
 def learn(session, replay_memory, main_dqn, target_dqn, batch_size, gamma):
     """
@@ -336,7 +333,6 @@ def learn(session, replay_memory, main_dqn, target_dqn, batch_size, gamma):
     states, actions, rewards, new_states, terminal_flags = replay_memory.get_random_ep()
     # The main network estimates which action is best (in the next state s', new_states is passed!)
     # for every transition in the minibatch
-    batch_size = len(states)
     arg_q_max = session.run(main_dqn.best_action, feed_dict={main_dqn.input:new_states})
     # The target network estimates the Q-values (in the next state s', new_states is passed!)
     # for every transition in the minibatch
@@ -346,7 +342,6 @@ def learn(session, replay_memory, main_dqn, target_dqn, batch_size, gamma):
     # Bellman equation. Multiplication with (1-terminal_flags) makes sure that
     # if the game is over, targetQ=rewards
     target_q = rewards + (gamma*double_q * (1-terminal_flags))
-    print(target_q.shape)
     # Gradient descend step to update the parameters of the main network
     loss, _, TD_error = session.run([main_dqn.loss, main_dqn.update, main_dqn.TD_Error],
                           feed_dict={main_dqn.input:states,
@@ -537,14 +532,19 @@ def train():
                 run += 1
                 for _ in range(MAX_EPISODE_LENGTH):
 
-                    while run == 1 and not terminal:
-                        processed_new_frame, reward, terminal, terminal_life_lost, new_frame = atari.step(sess, random.randrange(4))
-                        gif.append(np.transpose(new_frame, axes=(1, 0, 2)))
-                        processed_gif.append(processed_new_frame)
-                        deadFrames+=1
-                        if deadFrames%100==0:
-                            print(deadFrames)
-
+                    # while run == 1 and not terminal:
+                    #     processed_new_frame, reward, terminal, terminal_life_lost, new_frame = atari.step(sess, random.randrange(4))
+                    #     gif.append(np.transpose(new_frame, axes=(1, 0, 2)))
+                    #     processed_gif.append(processed_new_frame)
+                    #     deadFrames+=1
+                    #     if deadFrames%100==0:
+                    #         print(deadFrames)
+                    #         print(new_frame.shape)
+                    # if run == 1:
+                    #     write_gif(gif, "/home/kapok/Gifs/DeadFrames"+str(run)+".gif", fps=30)
+                    #     save_vid(processed_gif, "/home/kapok/Gifs/DeadFramesProcessed"+str(run)+".gif")
+                    #
+                    #     print("finally out after",deadFrames,"dead frames")
 
                     state = atari.state
                     action = explore_exploit_sched.get_action(sess, frame_number, state, evaluation=is_eval)
@@ -576,8 +576,8 @@ def train():
                         if is_eval:
                             print("\n############ EVALUATION ############\n")
                             is_eval = False
-                            write_gif(gif, "/home/kapok/Gifs/Run" + str(run) + ".gif", fps=30)
-                            save_vid(processed_gif, "/home/kapok/Gifs/RunProcessed_"+str(run)+".gif")
+                            write_gif(gif, "/home/kapok/Gifs/DeadFrames_" + str(run) + ".gif", fps=30)
+                            save_vid(processed_gif, "/home/kapok/Gifs/DeadFramesProcessed_"+str(run)+".gif")
                             gif, processed_gif = [], []
                         print("Run: " + str(run) + "  Reward: " + str(episode_reward_sum) + "  Explore Rate: " + str(explore_exploit_sched.get_epsilon(frame_number)) + "  Frame Count: " + str(frame_number))
                         terminal = False

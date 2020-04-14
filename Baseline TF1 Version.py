@@ -111,8 +111,7 @@ class DQN(object):
         # Action that was performed
         self.action = tf.placeholder(shape=[None], dtype=tf.int32)
         # Q value of the action that was performed
-        self.Q = tf.reduce_sum(tf.multiply(self.q_values, tf.one_hot(self.action, self.n_actions, dtype=tf.float32)),
-                               axis=1)
+        self.Q = tf.reduce_sum(tf.multiply(self.q_values, tf.one_hot(self.action, self.n_actions, dtype=tf.float32)),  axis=1)
         self.TD_Error = self.target_q-tf.reduce_max(self.q_values, axis=1)
 
         # Parameter updates
@@ -313,16 +312,6 @@ def learn(session, replay_memory, main_dqn, target_dqn, batch_size, gamma):
     q_vals = session.run(target_dqn.q_values, feed_dict={target_dqn.input:new_states})
     double_q = q_vals[range(batch_size), arg_q_max]
 
-
-
-
-
-
-
-
-
-
-
     # Bellman equation. Multiplication with (1-terminal_flags) makes sure that
     # if the game is over, targetQ=rewards
     target_q = rewards + (gamma*double_q * (1-terminal_flags))
@@ -331,16 +320,6 @@ def learn(session, replay_memory, main_dqn, target_dqn, batch_size, gamma):
                           feed_dict={main_dqn.input:states,
                                      main_dqn.target_q:target_q,
                                      main_dqn.action:actions})
-
-
-
-
-
-
-
-
-
-
 
     return loss, TD_error
 

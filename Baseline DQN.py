@@ -312,12 +312,11 @@ def learn(session, replay_memory, main_dqn, target_dqn, batch_size, gamma):
     # state s', new_states is passed!)
     # for every transition in the minibatch
 
-    q_values = session.run(main_dqn.q_values, feed_dict={main_dqn.input:new_states})
-
-    arg_q_max = np.argmax(q_values, axis=1)
+    arg_q_max = session.run(main_dqn.best_action, feed_dict={main_dqn.input:new_states})
     # The target network estimates the Q-values (in the next state s', new_states is passed!)
     # for every transition in the minibatch
     q_vals = session.run(target_dqn.q_values, feed_dict={target_dqn.input:new_states})
+
     double_q = q_vals[range(batch_size), arg_q_max]
     # Bellman equation. Multiplication with (1-terminal_flags) makes sure that
     # if the game is over, targetQ=rewards
@@ -387,7 +386,7 @@ class Atari(object):
         if evaluation:
             for _ in range(random.randint(1, self.no_op_steps)):
                 frame, _, _, _ = self.env.step(1)  # Action 'Fire'
-        processed_frame = self.process_frame(sess, frame)  # (★★★)
+        processed_frame = self.process_frame(sess, frame)
         self.state = np.repeat(processed_frame, self.agent_history_length, axis=2)
 
         return terminal_life_lost
@@ -399,7 +398,7 @@ class Atari(object):
             action: Integer, action the agent performs
         Performs an action and observes the reward and terminal state from the environment
         """
-        new_frame, reward, terminal, info = self.env.step(action)  # (5★)
+        new_frame, reward, terminal, info = self.env.step(action)
 
         if info['ale.lives'] < self.last_lives:
             terminal_life_lost = True
@@ -407,9 +406,9 @@ class Atari(object):
             terminal_life_lost = terminal
         self.last_lives = info['ale.lives']
 
-        processed_new_frame = self.process_frame(sess, new_frame)  # (6★)
-        new_state = np.append(self.state[:, :, 1:], processed_new_frame, axis=2)  # (6★)
-        self.state = new_state
+        processed_new_frame = self.process_frame(sess, new_frame)
+
+        self.state = np.append(self.state[:, :, 1:], processed_new_frame, axis=2)
 
         return processed_new_frame, reward, terminal, terminal_life_lost, new_frame
 
@@ -442,7 +441,8 @@ LEARNING_RATE = 0.00025          # Set to 0.00025 in Pong for quicker results.
                                  # Hessel et al. 2017 used 0.0000625
 BS = 32                          # Batch size
 
-PATH = "/content/gdrive/My Drive/Models/checks/"                 # Gifs and checkpoints will be saved here
+PATH = "output/"                 # Gifs and checkpoints will be saved here
+SUMMARIES = "summaries"          # logdir for tensorboard
 RUNID = 'run_1'
 
 atari = Atari(ENV_NAME, NO_OP_STEPS)
@@ -451,9 +451,9 @@ print("The environment has the following {} actions: {}".format(atari.env.action
 
 # main DQN and target DQN networks:
 with tf.variable_scope('mainDQN'):
-    MAIN_DQN = DQN(atari.env.action_space.n, HIDDEN, LEARNING_RATE)   # (★★)
+    MAIN_DQN = DQN(atari.env.action_space.n, HIDDEN, LEARNING_RATE)
 with tf.variable_scope('targetDQN'):
-    TARGET_DQN = DQN(atari.env.action_space.n, HIDDEN)               # (★★)
+    TARGET_DQN = DQN(atari.env.action_space.n, HIDDEN)
 
 init = tf.global_variables_initializer()
 saver = tf.train.Saver()
@@ -464,7 +464,7 @@ TARGET_DQN_VARS = tf.trainable_variables(scope='targetDQN')
 
 def train():
     """Contains the training and evaluation loops"""
-    my_replay_memory = ReplayMemory(size=MEMORY_SIZE, batch_size=BS)  # (★)
+    my_replay_memory = ReplayMemory(size=MEMORY_SIZE, batch_size=BS)
     update_networks = TargetNetworkUpdater(MAIN_DQN_VARS, TARGET_DQN_VARS)
 
     explore_exploit_sched = ExplorationExploitationScheduler(
@@ -481,7 +481,7 @@ def train():
         q_values=[]
         run = 0
 
-        while frame_number < MAX_FRAMES:  #
+        while frame_number < MAX_FRAMES:
 
             epoch_frame = 0
             while epoch_frame < EVAL_FREQUENCY:
@@ -509,7 +509,7 @@ def train():
                                      BS, gamma=DISCOUNT_FACTOR)  # (8★)
                         loss_list.append(loss)
                     if frame_number % NETW_UPDATE_FREQ == 0 and frame_number > REPLAY_MEMORY_START_SIZE:
-                        update_networks(sess)  # (9★)
+                        update_networks(sess)
 
                     if terminal:
                         print("Run: " + str(run) + "  Reward: " + str(episode_reward_sum) + "  Explore Rate: " + str(

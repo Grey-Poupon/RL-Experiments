@@ -7,7 +7,7 @@ from bisect import bisect_left
 
 
 class Item:
-    def __init__(self, resource, TD_error= 200):
+    def __init__(self, resource, TD_error=200):
         if not TD_error:
             TD_error=200
         self.resource = resource
@@ -22,8 +22,10 @@ class Item:
                self.get_priority() == other.get_priority() and self.idx == other.idx
 
     def get_priority(self):
-        self.calc_rank()
-        return self.priority
+        return 1 / (self.get_idx() + 1)
+
+    def get_rank(self):
+        return self.get_idx() + 1
 
     def get_sample_prob(self):
         return self.get_priority()/self.tree.get_sum_priority()
@@ -32,10 +34,6 @@ class Item:
         if not TD_error:
             TD_error=200
         self.TD_error = TD_error
-
-    def calc_rank(self):
-        self.rank = self.get_idx() + 1
-        self.priority = 1 / self.rank
 
     def get_idx(self):
         return self.idx - self.tree.idx_shift
@@ -125,8 +123,8 @@ class SumTree:
     def get_minibatch2(self, batch_size):
         leaves = self.get_leaves()
 
-        lp = self.get_sum_priority()
-        step = lp/batch_size
+        sumP = self.get_sum_priority()
+        step = sumP/batch_size
 
         batch = []
         val = 0
@@ -196,13 +194,15 @@ class SumTree:
     def add_item(self, item):
         if item.tree is None:
             item.tree = self
+
+        # This will shift the Deque
         if self.empty_leaves == 0:
-            self.tree.append(item)
-            self.idx_shift += 1
-            item.idx = self.size + self.idx_shift
+            self.tree.appendleft(item)
+            self.idx_shift -= 1
+            item.idx = 0
         else:
-            self.tree.append(item)
-            item.idx = self.size - self.empty_leaves + self.idx_shift
+            self.tree.appendleft(item)
+            item.idx = 0
             self.empty_leaves -= 1
 
     ##
@@ -303,7 +303,7 @@ class PEReplayMemory(object):
 
         transitions = self.tree.get_minibatch2(self.batch_size)
 
-        states, actions, rewards, new_states, terminal_flags, probabilties, items = [], [], [], [], [], [], []
+        states, actions, rewards, new_states, terminal_flags, probabilties, items, ranks = [], [], [], [], [], [], [], []
 
         for t in transitions:
             states.append(t.resource[0])
@@ -313,8 +313,9 @@ class PEReplayMemory(object):
             terminal_flags.append(t.resource[4])
             probabilties.append(t.get_sample_prob())
             items.append(t)
+            ranks.append(t.get_rank())
 
-        return np.array(states), np.array(actions), np.array(rewards), np.array(new_states), np.array(terminal_flags), np.array(probabilties), items
+        return np.array(states), np.array(actions), np.array(rewards), np.array(new_states), np.array(terminal_flags), np.array(probabilties), items, np.array(ranks)
 
     def save(self):
         return self.tree.save()
