@@ -414,7 +414,8 @@ def train():
                 episode_reward_sum = 0
                 for _ in range(MAX_EPISODE_LENGTH):
 
-                    action, q_val = explore_exploit_sched.get_action(sess, frame_number, atari.state)
+                    state = atari.state
+                    action, q_val = explore_exploit_sched.get_action(sess, frame_number, state)
                     q_values.append(q_val)
 
                     processed_new_frame, reward, terminal, terminal_life_lost, _ = atari.step(sess, action)
@@ -424,7 +425,8 @@ def train():
 
                     # (7★) Store transition in the replay memory
                     my_replay_memory.add_experience(action=action,
-                                                    frame=processed_new_frame[:, :, 0],
+                                                    state=state,
+                                                    new_state=processed_new_frame,
                                                     reward=reward,
                                                     terminal=terminal_life_lost)
 
@@ -442,10 +444,10 @@ def train():
                         rewards.append(episode_reward_sum)
                         break
 
-        saver.save(sess, "/data/Saves/PER/Pong/Weights/" + str(frame_number))
-        np.savez("/data/Saves/PER/Pong/Memory/Memory", my_replay_memory.actions, my_replay_memory.rewards,
+        saver.save(sess, "/home/kapok/Saves/PER/Pong/Weights/" + str(frame_number))
+        np.savez("/home/kapok/Saves/PER/Pong/Memory/Memory", my_replay_memory.actions, my_replay_memory.rewards,
                  my_replay_memory.frames, my_replay_memory.terminal_flags)
-        np.savez("/data/Saves/PER/Pong/Logs/Logs_" + str(frame_number), loss_list, rewards, q_values)
+        np.savez("/home/kapok/Saves/PER/Pong/Logs/Logs_" + str(frame_number), loss_list, rewards, q_values)
         rewards, loss_list, q_values = [], [], []
         print("saved")
 
