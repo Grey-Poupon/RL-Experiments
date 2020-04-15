@@ -1,21 +1,16 @@
-import math
-import pickle
-import random
-import gym
-import tensorflow as tf
-import matplotlib.pyplot as plt
-import numpy as np
-from PER_Memory import Item, SumTree, PEReplayMemory
-import time
-import os
-import imageio
-
 TRAIN = True
 
 #ENV_NAME = 'BreakoutDeterministic-v4'
-#ENV_NAME = 'Qbert-v0'
 ENV_NAME = 'PongDeterministic-v4'
-# You can increase the learning rate to 0.00025 in Pong for quicker results
+
+import os
+import random
+import gym
+import tensorflow as tf
+import numpy as np
+import imageio
+from skimage.transform import resize
+
 
 class FrameProcessor(object):
     """Resizes and converts RGB Atari frames to grayscale"""
@@ -120,21 +115,11 @@ class DQN(object):
         # Q value of the action that was performed
         self.Q = tf.reduce_sum(tf.multiply(self.q_values, tf.one_hot(self.action, self.n_actions, dtype=tf.float32)),
                                axis=1)
-        self.TD_Error = self.target_q-tf.reduce_max(self.q_values, axis=1)
 
         # Parameter updates
         self.loss = tf.reduce_mean(tf.losses.huber_loss(labels=self.target_q, predictions=self.Q))
         self.optimizer = tf.train.AdamOptimizer(learning_rate=self.learning_rate)
         self.update = self.optimizer.minimize(self.loss)
-
-        # weight = (N·P(j))−β / Max Weight
-        self.N = tf.placeholder(dtype=tf.float32)
-        self.P = tf.placeholder(dtype=tf.float32)
-        self.M = tf.placeholder(dtype=tf.float32)
-        self.B = tf.placeholder(dtype=tf.float32)
-
-        # Calculcate weight as per PER
-        self.importance_weight = tf.divide(tf.pow((self.N * self.P), -self.B), self.M)
 
 
 class ExplorationExploitationScheduler(object):
@@ -172,21 +157,20 @@ class ExplorationExploitationScheduler(object):
         self.slope = -(self.eps_initial - self.eps_final) / self.eps_annealing_frames
         self.intercept = self.eps_initial - self.slope * self.replay_memory_start_size
         self.slope_2 = -(self.eps_final - self.eps_final_frame) / (
-                    self.max_frames - self.eps_annealing_frames - self.replay_memory_start_size)
+        self.max_frames - self.eps_annealing_frames - self.replay_memory_start_size)
         self.intercept_2 = self.eps_final_frame - self.slope_2 * self.max_frames
 
         self.DQN = DQN
 
     def get_epsilon(self, frame_number, evaluation=False):
         if evaluation:
-            eps = -1
+            eps = self.eps_evaluation
         elif frame_number < self.replay_memory_start_size:
             eps = self.eps_initial
         elif frame_number >= self.replay_memory_start_size and frame_number < self.replay_memory_start_size + self.eps_annealing_frames:
             eps = self.slope * frame_number + self.intercept
         elif frame_number >= self.replay_memory_start_size + self.eps_annealing_frames:
             eps = self.slope_2 * frame_number + self.intercept_2
-
         return eps
 
     def get_action(self, session, frame_number, state, evaluation=False):
@@ -205,13 +189,114 @@ class ExplorationExploitationScheduler(object):
         return session.run([self.DQN.best_action, self.DQN.best_q_value], feed_dict={self.DQN.input: [state]})
 
 
-def learn(session, PER_memory, main_dqn, target_dqn, batch_size, gamma, beta=1):
+class ReplayMemory(object):
+    """Replay Memory that stores the last size=1,000,000 transitions"""
+
+    def __init__(self, size=1000000, frame_height=84, frame_width=84,
+                 agent_history_length=4, batch_size=32):
+        """
+        Args:
+            size: Integer, Number of stored transitions
+            frame_height: Integer, Height of a frame of an Atari game
+            frame_width: Integer, Width of a frame of an Atari game
+            agent_history_length: Integer, Number of frames stacked together to create a state
+            batch_size: Integer, Number if transitions returned in a minibatch
+        """
+        self.size = size
+        self.frame_height = frame_height
+        self.frame_width = frame_width
+        self.agent_history_length = agent_history_length
+        self.batch_size = batch_size
+        self.count = 0
+        self.current = 0
+
+        # Pre-allocate memory
+        self.actions = np.empty(self.size, dtype=np.int32)
+        self.rewards = np.empty(self.size, dtype=np.float32)
+        self.frames = np.empty((self.size, self.frame_height, self.frame_width), dtype=np.uint8)
+        self.terminal_flags = np.empty(self.size, dtype=np.bool)
+
+        # Pre-allocate memory for the states and new_states in a minibatch
+        self.states = np.empty((self.batch_size, self.agent_history_length,
+                                self.frame_height, self.frame_width), dtype=np.uint8)
+        self.new_states = np.empty((self.batch_size, self.agent_history_length,
+                                    self.frame_height, self.frame_width), dtype=np.uint8)
+        self.indices = np.empty(self.batch_size, dtype=np.int32)
+
+    def load(self, arr):
+        self.actions = arr[0]
+        self.rewards = arr[1]
+        self.frames = arr[2]
+
+        self.terminal_flags = arr[3]
+        self.states = arr[4]
+        self.new_states = arr[5]
+        self.indices = arr[6]
+
+        self.count = len(self.actions)
+        self.current = (self.count + 1) % self.size
+
+    def add_experience(self, action, frame, reward, terminal):
+        """
+        Args:
+            action: An integer between 0 and env.action_space.n - 1
+                determining the action the agent perfomed
+            frame: A (84, 84, 1) frame of an Atari game in grayscale
+            reward: A float determining the reward the agend received for performing an action
+            terminal: A bool stating whether the episode terminated
+        """
+        if frame.shape != (self.frame_height, self.frame_width):
+            raise ValueError('Dimension of frame is wrong!')
+        self.actions[self.current] = action
+        self.frames[self.current, ...] = frame
+        self.rewards[self.current] = reward
+        self.terminal_flags[self.current] = terminal
+        self.count = max(self.count, self.current + 1)
+        self.current = (self.current + 1) % self.size
+
+    def _get_state(self, index):
+        if self.count is 0:
+            raise ValueError("The replay memory is empty!")
+        if index < self.agent_history_length - 1:
+            raise ValueError("Index must be min 3")
+        return self.frames[index - self.agent_history_length + 1:index + 1, ...]
+
+    def _get_valid_indices(self):
+        for i in range(self.batch_size):
+            while True:
+                index = random.randint(self.agent_history_length, self.count - 1)
+                if index < self.agent_history_length:
+                    continue
+                if index >= self.current and index - self.agent_history_length <= self.current:
+                    continue
+                if self.terminal_flags[index - self.agent_history_length:index].any():
+                    continue
+                break
+            self.indices[i] = index
+
+    def get_minibatch(self):
+        """
+        Returns a minibatch of self.batch_size = 32 transitions
+        """
+        if self.count < self.agent_history_length:
+            raise ValueError('Not enough memories to get a minibatch')
+
+        self._get_valid_indices()
+
+        for i, idx in enumerate(self.indices):
+            self.states[i] = self._get_state(idx - 1)
+            self.new_states[i] = self._get_state(idx)
+
+        return np.transpose(self.states, axes=(0, 2, 3, 1)), self.actions[self.indices], self.rewards[
+            self.indices], np.transpose(self.new_states, axes=(0, 2, 3, 1)), self.terminal_flags[self.indices]
+
+
+def learn(session, replay_memory, main_dqn, batch_size, gamma):
     """
     Args:
         session: A tensorflow sesson object
-        PER_memory: A ReplayMemory object
+        replay_memory: A ReplayMemory object
         main_dqn: A DQN object
-        target_dqn: A DQN object
         batch_size: Integer, Batch size
         gamma: Float, discount factor for the Bellman equation
     Returns:
@@ -220,37 +305,26 @@ def learn(session, PER_memory, main_dqn, target_dqn, batch_size, gamma, beta=1):
     target Q-value that the prediction Q-value is regressed to.
     Then a parameter update is performed on the main DQN.
     """
-
     # Draw a minibatch from the replay memory
-    states, actions, rewards, new_states, terminal_flags, probabilities, items, ranks = PER_memory.get_minibatch()
-
+    states, actions, rewards, new_states, terminal_flags = replay_memory.get_minibatch()
     # The main network estimates which action is best (in the next
     # state s', new_states is passed!)
     # for every transition in the minibatch
 
-    arg_q_max = session.run(main_dqn.best_action, feed_dict={main_dqn.input:new_states})
-    # The target network estimates the Q-values (in the next state s', new_states is passed!)
-    # for every transition in the minibatch
-    q_vals = session.run(target_dqn.q_values, feed_dict={target_dqn.input:new_states})
+    q_values = session.run(main_dqn.q_values, feed_dict={main_dqn.input:new_states})
 
-    double_q = q_vals[range(batch_size), arg_q_max]
-    # We use an importance sampling weight to reduce the bias introduces using PER
+    arg_q_max = np.argmax(q_values, axis=1)
 
-    importance_sampling_weight = ranks / PER_memory.tree.get_num_leaves()
-    
-
+    double_q = q_values[range(batch_size), arg_q_max]
     # Bellman equation. Multiplication with (1-terminal_flags) makes sure that
     # if the game is over, targetQ=rewards
-    target_q = (rewards + gamma*double_q * (1-terminal_flags)) * importance_sampling_weight
+    target_q = rewards + (gamma*double_q * (1-terminal_flags))
     # Gradient descend step to update the parameters of the main network
-    loss, _, TD_error = session.run([main_dqn.loss, main_dqn.update, main_dqn.TD_Error],
-                                    feed_dict={main_dqn.input: states,
-                                               main_dqn.target_q: target_q,
-                                               main_dqn.action: actions})
-    for i, error in enumerate(TD_error):
-        items[i].TD_error = error
-
-    return loss, TD_error
+    loss, _ = session.run([main_dqn.loss, main_dqn.update],
+                          feed_dict={main_dqn.input:states,
+                                     main_dqn.target_q:target_q,
+                                     main_dqn.action:actions})
+    return loss
 
 
 class TargetNetworkUpdater(object):
@@ -310,7 +384,7 @@ class Atari(object):
         if evaluation:
             for _ in range(random.randint(1, self.no_op_steps)):
                 frame, _, _, _ = self.env.step(1)  # Action 'Fire'
-        processed_frame = self.process_frame(sess, frame)
+        processed_frame = self.process_frame(sess, frame)  # (★★★)
         self.state = np.repeat(processed_frame, self.agent_history_length, axis=2)
 
         return terminal_life_lost
@@ -322,7 +396,7 @@ class Atari(object):
             action: Integer, action the agent performs
         Performs an action and observes the reward and terminal state from the environment
         """
-        new_frame, reward, terminal, info = self.env.step(action)
+        new_frame, reward, terminal, info = self.env.step(action)  # (5★)
 
         if info['ale.lives'] < self.last_lives:
             terminal_life_lost = True
@@ -330,9 +404,9 @@ class Atari(object):
             terminal_life_lost = terminal
         self.last_lives = info['ale.lives']
 
-        processed_new_frame = self.process_frame(sess, new_frame)
-
-        self.state = np.append(self.state[:, :, 1:], processed_new_frame, axis=2)
+        processed_new_frame = self.process_frame(sess, new_frame)  # (6★)
+        new_state = np.append(self.state[:, :, 1:], processed_new_frame, axis=2)  # (6★)
+        self.state = new_state
 
         return processed_new_frame, reward, terminal, terminal_life_lost, new_frame
 
@@ -350,8 +424,8 @@ NETW_UPDATE_FREQ = 10000         # Number of chosen actions between updating the
 DISCOUNT_FACTOR = 0.99           # gamma in the Bellman equation
 REPLAY_MEMORY_START_SIZE = 100 # Number of completely random actions,
                                  # before the agent starts learning
-MAX_FRAMES = 1000000            # Total number of frames the agent sees
-MEMORY_SIZE = 400000            # Number of transitions stored in the replay memory
+MAX_FRAMES = 30000000            # Total number of frames the agent sees
+MEMORY_SIZE = 300000             # Number of transitions stored in the replay memory
 NO_OP_STEPS = 10                 # Number of 'NOOP' or 'FIRE' actions at the beginning of an
                                  # evaluation episode
 UPDATE_FREQ = 4                  # Every four actions a gradient descend step is performed
@@ -361,12 +435,11 @@ HIDDEN = 1024                    # Number of filters in the final convolutional 
                                  # (1,1,512). This is slightly different from the original
                                  # implementation but tests I did with the environment Pong
                                  # have shown that this way the score increases more quickly
-LEARNING_RATE = 0.00001          # Set to 0.00025 in Pong for quicker results.
+LEARNING_RATE = 0.00025          # Set to 0.00025 in Pong for quicker results.
                                  # Hessel et al. 2017 used 0.0000625
 BS = 32                          # Batch size
 
-PATH = "output/"                 # Gifs and checkpoints will be saved here
-SUMMARIES = "summaries"          # logdir for tensorboard
+PATH = "/content/gdrive/My Drive/Models/checks/"                 # Gifs and checkpoints will be saved here
 RUNID = 'run_1'
 
 atari = Atari(ENV_NAME, NO_OP_STEPS)
@@ -375,21 +448,17 @@ print("The environment has the following {} actions: {}".format(atari.env.action
 
 # main DQN and target DQN networks:
 with tf.variable_scope('mainDQN'):
-    MAIN_DQN = DQN(atari.env.action_space.n, HIDDEN, LEARNING_RATE)
-with tf.variable_scope('targetDQN'):
-    TARGET_DQN = DQN(atari.env.action_space.n, HIDDEN)
+    MAIN_DQN = DQN(atari.env.action_space.n, HIDDEN, LEARNING_RATE)   # (★★)
 
 init = tf.global_variables_initializer()
 saver = tf.train.Saver()
 
 MAIN_DQN_VARS = tf.trainable_variables(scope='mainDQN')
-TARGET_DQN_VARS = tf.trainable_variables(scope='targetDQN')
 
 
 def train():
     """Contains the training and evaluation loops"""
-    my_replay_memory = PEReplayMemory(size=MEMORY_SIZE, batch_size=BS)
-    update_networks = TargetNetworkUpdater(MAIN_DQN_VARS, TARGET_DQN_VARS)
+    my_replay_memory = ReplayMemory(size=MEMORY_SIZE, batch_size=BS)  # (★)
 
     explore_exploit_sched = ExplorationExploitationScheduler(
         MAIN_DQN, atari.env.action_space.n,
@@ -405,7 +474,7 @@ def train():
         q_values=[]
         run = 0
 
-        while frame_number < MAX_FRAMES:
+        while frame_number < MAX_FRAMES:  #
 
             epoch_frame = 0
             while epoch_frame < EVAL_FREQUENCY:
@@ -414,8 +483,7 @@ def train():
                 episode_reward_sum = 0
                 for _ in range(MAX_EPISODE_LENGTH):
 
-                    state = atari.state
-                    action, q_val = explore_exploit_sched.get_action(sess, frame_number, state)
+                    action, q_val = explore_exploit_sched.get_action(sess, frame_number, atari.state)
                     q_values.append(q_val)
 
                     processed_new_frame, reward, terminal, terminal_life_lost, _ = atari.step(sess, action)
@@ -425,17 +493,14 @@ def train():
 
                     # (7★) Store transition in the replay memory
                     my_replay_memory.add_experience(action=action,
-                                                    state=state,
-                                                    new_state=processed_new_frame,
+                                                    frame=processed_new_frame[:, :, 0],
                                                     reward=reward,
                                                     terminal=terminal_life_lost)
 
                     if frame_number % UPDATE_FREQ == 0 and frame_number > REPLAY_MEMORY_START_SIZE:
-                        loss = learn(sess, my_replay_memory, MAIN_DQN, TARGET_DQN,
+                        loss = learn(sess, my_replay_memory, MAIN_DQN,
                                      BS, gamma=DISCOUNT_FACTOR)  # (8★)
                         loss_list.append(loss)
-                    if frame_number % NETW_UPDATE_FREQ == 0 and frame_number > REPLAY_MEMORY_START_SIZE:
-                        update_networks(sess)
 
                     if terminal:
                         print("Run: " + str(run) + "  Reward: " + str(episode_reward_sum) + "  Explore Rate: " + str(
@@ -444,12 +509,19 @@ def train():
                         rewards.append(episode_reward_sum)
                         break
 
-        saver.save(sess, "/home/kapok/Saves/PER/Pong/Weights/" + str(frame_number))
-        np.savez("/home/kapok/Saves/PER/Pong/Memory/Memory", my_replay_memory.actions, my_replay_memory.rewards,
+            saver.save(sess, "/data/Saves/SubBaseline/Pong/Weights/" + str(frame_number))
+            np.savez("/data/Saves/SubBaseline/Pong/Memory/Memory", my_replay_memory.actions, my_replay_memory.rewards,
+                     my_replay_memory.frames, my_replay_memory.terminal_flags)
+            np.savez("/data/Saves/SubBaseline/Pong/Logs/Logs_" + str(frame_number), loss_list, rewards, q_values)
+            rewards, loss_list, q_values = [], [], []
+            print("saved")
+
+        saver.save(sess, "/data/Saves/SubBaseline/Pong/Weights/" + str(frame_number))
+        np.savez("/data/Saves/SubBaseline/Pong/Memory/Memory", my_replay_memory.actions, my_replay_memory.rewards,
                  my_replay_memory.frames, my_replay_memory.terminal_flags)
-        np.savez("/home/kapok/Saves/PER/Pong/Logs/Logs_" + str(frame_number), loss_list, rewards, q_values)
+        np.savez("/data/Saves/SubBaseline/Pong/Logs/Logs_" + str(frame_number), loss_list, rewards, q_values)
         rewards, loss_list, q_values = [], [], []
-        print("saved")
+        print("Final Save")
 
 
 
